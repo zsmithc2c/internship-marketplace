@@ -1,10 +1,3 @@
-Need to install the following packages:
-gitignore@0.7.0
-Ok to proceed? (y) 
-Created .gitignore file for flag type node,python,macos,vscode.
-There is no gitignore for Macos
-Available project types can be found by running `gitignore -types` or at https://github.com/github/gitignore
-There is no gitignore for Vscode
 Available project types can be found by running `gitignore -types` or at https://github.com/github/gitignore
 ated by jscoverage/JSCover
 lib-cov
