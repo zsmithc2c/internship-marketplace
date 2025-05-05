@@ -99,6 +99,23 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+# --- INSTALLED_APPS ---
+INSTALLED_APPS += [
+    "rest_framework",
+    "rest_framework_simplejwt",
+    "accounts",
+]
+
+# --- AUTH ---
+AUTH_USER_MODEL = "accounts.User"
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ),
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
@@ -125,3 +142,5 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
+
+APPEND_SLASH = False

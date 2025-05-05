@@ -2,12 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [ develop, main ]
+    branches: [develop, main]
   pull_request:
 
 jobs:
   backend:
     runs-on: ubuntu-latest
+
     services:
       postgres:
         image: postgres:16
@@ -21,34 +22,48 @@ jobs:
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest
+
       - name: Run tests
         run: pytest
+
       - name: Run ruff / black
         run: |
           pip install ruff black
-          ruff backend/ internships/
+          # Ruff ≥ 0.10 expects the `check` sub-command
+          ruff check backend/ internships/
           black --check backend/ internships/
 
   frontend:
     runs-on: ubuntu-latest
+
+    defaults:           # all `run:` commands below execute inside /frontend
+      run:
+        working-directory: frontend
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+
       - name: Install deps
-        run: npm --prefix frontend ci
+        run: npm ci            # already in /frontend
+
       - name: Type check & lint
         run: |
-          npx --prefix frontend next lint
-          npx --prefix frontend tsc --noEmit
+          npx next lint
+          npx tsc --noEmit
