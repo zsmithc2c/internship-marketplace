@@ -1,12 +1,23 @@
+# ── Django + REST stack ─────────────────────────────────────────
 asgiref==3.8.1
 Django==5.2
 djangorestframework==3.16.0
+djangorestframework-simplejwt==5.3.1
+
+# ── Database drivers ───────────────────────────────────────────
 psycopg==3.2.7
 psycopg-binary==3.2.7
-python-decouple==3.8
 sqlparse==0.5.3
-djangorestframework-simplejwt==5.3.1
+
+# ── Config helpers ─────────────────────────────────────────────
+python-decouple==3.8
+
+# ── OpenAI + Agents SDK ────────────────────────────────────────
+openai>=1.15.0          # OpenAI Python SDK v1.x
+openai-agents>=0.0.14   # Agents SDK
+pydantic>=2.7
+
+# ── Dev / lint / test ──────────────────────────────────────────
 pytest==8.2.0
 ruff==0.4.4
 black==24.4.2
-
