@@ -1,7 +1,7 @@
+# profiles/agent_views.py
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict
 
 from agents import Runner
 from openai import AsyncOpenAI
@@ -10,41 +10,74 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from pipeline_agents.profile_builder import build_profile_builder_agent
-from profiles.models import Profile
+
+from .models import AgentMessage
+
+
+def build_prompt(user_email: str, latest_user_msg: str) -> str:
+    """
+    Pull prior transcript for the user and append the latest turn.
+
+    Format:
+        User: …
+        Assistant: …
+        User: <latest_user_msg>
+    """
+    lines: list[str] = []
+    for m in AgentMessage.objects.filter(user__email=user_email).order_by("created_at"):
+        speaker = "User" if m.role == AgentMessage.Role.USER else "Assistant"
+        lines.append(f"{speaker}: {m.content}")
+    lines.append(f"User: {latest_user_msg}")
+    return "\n".join(lines)
 
 
 class ProfileBuilderAgentView(APIView):
     """
     POST /api/agent/profile-builder/
-    Body:  { "message": "..." }
-    Reply: { "reply": "...", "profile_updated_at": "2025-05-07T14:23:18.123Z" }
-           (the extra key is present whenever the caller has a profile)
+    Body: { "message": "Hi there!" }
+
+    Returns: { "reply": "…", "profile_updated_at": "2025-05-07T15:02:00Z" | null }
     """
 
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
-        text = (request.data.get("message") or "").strip()
-        if not text:
+        latest = request.data.get("message", "").strip()
+        if not latest:
             return Response(
                 {"detail": "Missing 'message' field"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         user = request.user
+        user_email = user.email
+
+        # ---- persist the USER message immediately -------------------------
+        AgentMessage.objects.create(
+            user=user,
+            role=AgentMessage.Role.USER,
+            content=latest,
+        )
+
+        # ---- build prompt --------------------------------------------------
+        prompt = build_prompt(user_email, latest_user_msg=latest)
+
+        # ---- run agent -----------------------------------------------------
         client = AsyncOpenAI()
-        agent = build_profile_builder_agent(client, user_email=user.email)
+        agent = build_profile_builder_agent(client, user_email=user_email)
+        result = asyncio.run(Runner.run(agent, input=prompt))
+        reply = result.final_output
 
-        # ── run the agent ───────────────────────────────────────────────────
-        result = asyncio.run(Runner.run(agent, input=text))
-        reply_text = result.final_output
+        # ---- persist ASSISTANT reply --------------------------------------
+        AgentMessage.objects.create(
+            user=user,
+            role=AgentMessage.Role.ASSISTANT,
+            content=reply,
+        )
 
-        # ── build response payload ─────────────────────────────────────────
-        payload: Dict[str, Any] = {"reply": reply_text}
+        # ---- response ------------------------------------------------------
+        body: dict = {"reply": reply}
+        if "profile_updated" in reply:
+            body["profile_updated_at"] = user.profile.updated_at.isoformat()
 
-        # attach latest profile timestamp (if profile exists)
-        profile = Profile.objects.filter(user=user).first()
-        if profile:
-            payload["profile_updated_at"] = profile.updated_at.isoformat()
-
-        return Response(payload)
+        return Response(body)

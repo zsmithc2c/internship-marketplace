@@ -6,8 +6,11 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 
+# ────────────────────────────────────────────────────────────────
+# Core profile-related models (unchanged)
+# ────────────────────────────────────────────────────────────────
 class Skill(models.Model):
-    """Canonical skill entry (e.g. 'Python', 'Figma')."""
+    """Canonical skill entry (e.g. “Python”, “Figma”)."""
 
     name = models.CharField(max_length=128, unique=True)
 
@@ -88,3 +91,28 @@ class Education(models.Model):
 
     def __str__(self) -> str:  # pragma: no cover
         return f"{self.institution} – {self.degree or 'Course'}"
+
+
+# ────────────────────────────────────────────────────────────────
+# NEW: Persistent chat transcript for the Profile-Builder agent
+# ────────────────────────────────────────────────────────────────
+class AgentMessage(models.Model):
+    class Role(models.TextChoices):
+        USER = "user", _("User")
+        ASSISTANT = "assistant", _("Assistant")
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="agent_messages",
+    )
+    role = models.CharField(max_length=9, choices=Role.choices)
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("created_at",)
+
+    def __str__(self) -> str:  # pragma: no cover
+        preview = (self.content[:40] + "…") if len(self.content) > 40 else self.content
+        return f"{self.user.email} [{self.role}] {preview}"

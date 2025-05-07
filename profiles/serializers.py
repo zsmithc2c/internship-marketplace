@@ -1,14 +1,17 @@
+# profiles/serializers.py
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
-from .models import Availability, Education, Profile, Skill
+from .models import AgentMessage, Availability, Education, Profile, Skill
 
 User = get_user_model()
 
 
-# ---------- leaf serializers ----------
+# ────────────────────────────────────────────────────────────────
+# Leaf serializers
+# ────────────────────────────────────────────────────────────────
 class SkillSerializer(serializers.ModelSerializer):
     class Meta:
         model = Skill
@@ -44,7 +47,16 @@ class EducationSerializer(serializers.ModelSerializer):
         read_only_fields = ("id",)
 
 
-# ---------- main profile serializer ----------
+# NEW ─ chat message serializer
+class AgentMessageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AgentMessage
+        fields = ("role", "content", "created_at")
+
+
+# ────────────────────────────────────────────────────────────────
+# Main profile serializer
+# ────────────────────────────────────────────────────────────────
 class ProfileSerializer(serializers.ModelSerializer):
     availability = AvailabilitySerializer()
     skills = SkillSerializer(many=True)
@@ -89,7 +101,6 @@ class ProfileSerializer(serializers.ModelSerializer):
 
     # -------- create --------
     def create(self, validated: dict):
-        # pop nested
         availability_data = validated.pop("availability")
         skills_data = validated.pop("skills", [])
         educations_data = validated.pop("educations", [])
