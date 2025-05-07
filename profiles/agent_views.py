@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import List
 
 from agents import Runner
 from openai import AsyncOpenAI
@@ -12,31 +13,30 @@ from rest_framework.views import APIView
 from pipeline_agents.profile_builder import build_profile_builder_agent
 
 from .models import AgentMessage
+from .serializers import AgentMessageSerializer
 
 
-def build_prompt(user_email: str, latest_user_msg: str) -> str:
-    """
-    Pull prior transcript for the user and append the latest turn.
-
-    Format:
-        User: …
-        Assistant: …
-        User: <latest_user_msg>
-    """
-    lines: list[str] = []
-    for m in AgentMessage.objects.filter(user__email=user_email).order_by("created_at"):
-        speaker = "User" if m.role == AgentMessage.Role.USER else "Assistant"
-        lines.append(f"{speaker}: {m.content}")
-    lines.append(f"User: {latest_user_msg}")
+# ────────────────────────────────────────────────────────────────
+# helper: build a prompt string from DB history + latest message
+# ────────────────────────────────────────────────────────────────
+def build_prompt(history: List[AgentMessage], latest_msg: str) -> str:
+    lines: list[str] = [
+        f"{'User' if m.role == AgentMessage.Role.USER else 'Assistant'}: {m.content}"
+        for m in history
+    ]
+    lines.append(f"User: {latest_msg}")
     return "\n".join(lines)
 
 
+# ────────────────────────────────────────────────────────────────
+# main chat view
+# ────────────────────────────────────────────────────────────────
 class ProfileBuilderAgentView(APIView):
     """
     POST /api/agent/profile-builder/
     Body: { "message": "Hi there!" }
 
-    Returns: { "reply": "…", "profile_updated_at": "2025-05-07T15:02:00Z" | null }
+    Returns: { "reply": "…", "profile_updated_at": "…" | null }
     """
 
     permission_classes = [permissions.IsAuthenticated]
@@ -50,34 +50,51 @@ class ProfileBuilderAgentView(APIView):
             )
 
         user = request.user
-        user_email = user.email
 
-        # ---- persist the USER message immediately -------------------------
+        # ------- save USER message ----------------------------------------
         AgentMessage.objects.create(
-            user=user,
-            role=AgentMessage.Role.USER,
-            content=latest,
+            user=user, role=AgentMessage.Role.USER, content=latest
         )
 
-        # ---- build prompt --------------------------------------------------
-        prompt = build_prompt(user_email, latest_user_msg=latest)
+        # ------- build prompt ---------------------------------------------
+        history = list(AgentMessage.objects.filter(user=user).order_by("created_at"))
+        prompt = build_prompt(history, latest_msg=latest)
 
-        # ---- run agent -----------------------------------------------------
+        # ------- run agent -------------------------------------------------
         client = AsyncOpenAI()
-        agent = build_profile_builder_agent(client, user_email=user_email)
+        agent = build_profile_builder_agent(client, user_email=user.email)
         result = asyncio.run(Runner.run(agent, input=prompt))
         reply = result.final_output
 
-        # ---- persist ASSISTANT reply --------------------------------------
+        # ------- save ASSISTANT reply -------------------------------------
         AgentMessage.objects.create(
-            user=user,
-            role=AgentMessage.Role.ASSISTANT,
-            content=reply,
+            user=user, role=AgentMessage.Role.ASSISTANT, content=reply
         )
 
-        # ---- response ------------------------------------------------------
+        # ------- response --------------------------------------------------
         body: dict = {"reply": reply}
         if "profile_updated" in reply:
             body["profile_updated_at"] = user.profile.updated_at.isoformat()
 
         return Response(body)
+
+
+# ────────────────────────────────────────────────────────────────
+# history endpoint (read-only)
+# ────────────────────────────────────────────────────────────────
+class AgentHistoryView(APIView):
+    """
+    GET /api/agent/profile-builder/history/
+
+    Returns: [
+      { "role": "assistant", "content": "…", "created_at": "…" },
+      …
+    ]
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        qs = AgentMessage.objects.filter(user=request.user).order_by("created_at")
+        data = AgentMessageSerializer(qs, many=True).data
+        return Response(data)

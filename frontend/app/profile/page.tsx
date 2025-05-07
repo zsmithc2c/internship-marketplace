@@ -35,6 +35,7 @@ export default function ProfilePage() {
   const location = [profile.city, profile.state, profile.country]
     .filter(Boolean)
     .join(", ");
+  const avail = profile.availability ?? null;
 
   /* ---------- render ---------- */
   return (
@@ -42,24 +43,34 @@ export default function ProfilePage() {
       <div className="w-full max-w-2xl space-y-6 rounded border p-6 shadow">
         {/* HEADLINE & BIO */}
         <section>
-          <h1 className="text-2xl font-semibold">{profile.headline || "—"}</h1>
+          <h1 className="text-2xl font-semibold">
+            {profile.headline || "—"}
+          </h1>
           <p className="mt-2 whitespace-pre-wrap">{profile.bio || "—"}</p>
         </section>
 
         {/* LOCATION & AVAILABILITY */}
         <section className="text-sm space-y-1">
           <p>
-            <span className="font-medium">Location:</span> {location || "—"}
+            <span className="font-medium">Location:</span>{" "}
+            {location || "—"}
           </p>
           <p>
             <span className="font-medium">Availability:</span>{" "}
-            {profile.availability.status}
-            {profile.availability.status === "FROM_DATE" &&
-              ` from ${profile.availability.earliest_start}`}
-            {profile.availability.hours_per_week &&
-              ` • ${profile.availability.hours_per_week} hrs/wk`}
-            {profile.availability.remote_ok && " • remote OK"}
-            {profile.availability.onsite_ok && " • onsite OK"}
+            {avail ? (
+              <>
+                {avail.status}
+                {avail.status === "FROM_DATE" &&
+                  avail.earliest_start &&
+                  ` from ${avail.earliest_start}`}
+                {avail.hours_per_week &&
+                  ` • ${avail.hours_per_week} hrs/wk`}
+                {avail.remote_ok && " • remote OK"}
+                {avail.onsite_ok && " • onsite OK"}
+              </>
+            ) : (
+              "—"
+            )}
           </p>
         </section>
 
@@ -104,7 +115,9 @@ export default function ProfilePage() {
               ))}
             </ul>
           ) : (
-            <p className="text-sm text-gray-500">No education records yet.</p>
+            <p className="text-sm text-gray-500">
+              No education records yet.
+            </p>
           )}
         </section>
 

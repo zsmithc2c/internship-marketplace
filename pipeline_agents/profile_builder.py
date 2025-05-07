@@ -21,6 +21,7 @@ from openai import AsyncOpenAI, OpenAI
 # Pieces reused from profiles.tools
 # ────────────────────────────────────────────────────────────────
 import profiles.tools as _p
+from profiles.models import Skill
 
 User = get_user_model()
 ProfilePayload = _p.ProfilePayload
@@ -32,27 +33,48 @@ ProfileModel = _p.Profile
 # Sync helper that writes to the DB (runs in a worker thread)
 # ────────────────────────────────────────────────────────────────
 def _save_profile_sync(user_email: str, data: dict) -> str:
-    """Persistence logic identical to profiles.tools.set_profile_fields_v1."""
+    """
+    Persist profile fields.  Skills are handled after the serializer so we
+    don’t hit the Skill.name UNIQUE constraint on duplicate calls.
+    """
+    # ---- pull nested ------------------------------------------------------
     availability = data.pop("availability", None)
-    skills = data.pop("skills", None)
+    skills = data.pop("skills", None)  # <-- keep out of serializer
     educations = data.pop("educations", None)
 
-    if availability is not None:
-        data["availability"] = availability
-    if skills is not None:
-        data["skills"] = [{"name": s} for s in skills]
-    if educations is not None:
-        data["educations"] = educations
-
+    # ---- ORM objects ------------------------------------------------------
     user = User.objects.get(email=user_email)
     profile, _ = ProfileModel.objects.get_or_create(user=user)
 
-    with transaction.atomic():
-        ser = ProfileSerializer(instance=profile, data=data, partial=True)
-        ser.is_valid(raise_exception=True)
-        ser.save()
+    # ---- main serializer (everything *except* skills) ---------------------
+    serializer_data = data.copy()
+    if availability is not None:
+        serializer_data["availability"] = availability
+    if educations is not None:
+        serializer_data["educations"] = educations
 
-    return json.dumps(data, default=str)
+    if serializer_data:
+        with transaction.atomic():
+            ser = ProfileSerializer(
+                instance=profile, data=serializer_data, partial=True
+            )
+            ser.is_valid(raise_exception=True)
+            ser.save()
+
+    # ---- skills (safe helper – ignores duplicates) ------------------------
+    if skills is not None:
+        names = [s.strip() for s in skills]
+        skill_objs = [
+            Skill.objects.get_or_create(name=name)[0] for name in names if name
+        ]
+        profile.skills.set(skill_objs)
+
+    # ---- return JSON for console print ------------------------------------
+    saved_snapshot = {
+        **serializer_data,
+        **({"skills": skills} if skills is not None else {}),
+    }
+    return json.dumps(saved_snapshot, default=str)
 
 
 # ────────────────────────────────────────────────────────────────
@@ -92,8 +114,9 @@ def _profile_fields_tool_for(user_email: str):
 # System instructions (with JSON examples & natural flow)
 # ────────────────────────────────────────────────────────────────
 _SYSTEM_INSTRUCTIONS = """
-You are **Pipeline Profile Builder**, an upbeat career-coach assistant. Chat
-naturally, learn about the student, and *author* their profile for them.
+You are **Pipeline Profile Builder**, an upbeat career-coach assistant.  
+Assume the student came here specifically to build their internship profile,
+so skip generic “How can I help?” greetings and dive right in.
 
 ──────────────────────────────────────────
 🎯  Data to produce
