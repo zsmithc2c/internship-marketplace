@@ -27,7 +27,7 @@ ALLOWED_HOSTS: list[str] = []
 # ───────────────────────────────────────────────────────────────
 INSTALLED_APPS = [
     # Third-party first so their migrations run early ↓
-    "corsheaders",  # ← NEW
+    "corsheaders",
     "drf_spectacular",
     "rest_framework",
     "rest_framework_simplejwt",
@@ -49,7 +49,7 @@ INSTALLED_APPS = [
 # Middleware
 # ───────────────────────────────────────────────────────────────
 MIDDLEWARE = [
-    "corsheaders.middleware.CorsMiddleware",  # ← NEW (must be first)
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -118,11 +118,11 @@ REST_FRAMEWORK = {
 }
 
 # ───────────────────────────────────────────────────────────────
-# CORS  (dev-only – loosen as needed for prod)
+# CORS (dev-only)
 # ───────────────────────────────────────────────────────────────
-CORS_ALLOW_ALL_ORIGINS = True  # allow http://localhost:* etc.
+CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_HEADERS = [  # include Auth & JSON headers
+CORS_ALLOW_HEADERS = [
     "authorization",
     "content-type",
     "accept",
@@ -143,3 +143,35 @@ STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 APPEND_SLASH = False
+
+# ───────────────────────────────────────────────────────────────
+# Logging (console INFO in dev)
+# ───────────────────────────────────────────────────────────────
+if DEBUG:
+    LOGGING = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "simple": {
+                "format": "%(levelname)s:%(name)s:%(message)s",
+            },
+        },
+        "handlers": {
+            "console": {
+                "class": "logging.StreamHandler",
+                "formatter": "simple",
+            },
+        },
+        "root": {  # everything else (OpenAI etc.)
+            "handlers": ["console"],
+            "level": "INFO",
+        },
+        "loggers": {
+            "profiles": {
+                "handlers": ["console"],
+                "level": "INFO",
+                "propagate": False,
+            },
+            # keep httpx or others unchanged through root
+        },
+    }

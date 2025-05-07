@@ -1,16 +1,24 @@
 """
-OpenAI-Agents tool: create or update an intern’s profile.
+OpenAI-Agents tool: create or update an intern’s profile
+(Incremental-save edition, now with unconditional console prints).
 
-The Pipeline Profile-Builder agent will call **set_profile_fields_v1**
-exactly once—after it has gathered every required profile field from the user.
+Changes (2025-05-07)
+────────────────────
+• All top-level `ProfilePayload` fields are Optional ⇒ supports incremental saves
+• Added **print()** lines so every attempt and result is visible in the run-server
+  terminal, even if the Django logger chain mis-behaves
+• Still logs via logging.getLogger(__name__) for structured output
 """
 
 from __future__ import annotations
 
 import datetime as _dt
+import json
+import logging
 from typing import List, Literal, Optional
 
-from agents import function_tool as tool  # decorator that auto-generates the schema
+from agents import function_tool as tool
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from pydantic import BaseModel, Field, ValidationError, validator
@@ -18,12 +26,16 @@ from pydantic import BaseModel, Field, ValidationError, validator
 from .models import Profile
 from .serializers import ProfileSerializer
 
+# ──────────────────────────────────────────────────────────────
+# logging
+# ──────────────────────────────────────────────────────────────
+log = logging.getLogger(__name__)
 User = get_user_model()
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# 🗄️  Pydantic payload schemas
-# ──────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────
+# Pydantic payload schemas
+# ──────────────────────────────────────────────────────────────
 class AvailabilityPayload(BaseModel):
     status: Literal["IMMEDIATELY", "FROM_DATE", "UNAVAILABLE"]
     earliest_start: Optional[_dt.date] = Field(
@@ -33,7 +45,6 @@ class AvailabilityPayload(BaseModel):
     remote_ok: bool = True
     onsite_ok: bool = False
 
-    # enforce earliest_start when needed
     @validator("earliest_start", always=True)
     def _check_start(cls, v, values):  # noqa: N805
         if values.get("status") == "FROM_DATE" and v is None:
@@ -52,60 +63,67 @@ class EducationPayload(BaseModel):
 
 
 class ProfilePayload(BaseModel):
-    # 1 ─ Basics
-    headline: str
-    bio: str
+    # 1 — Basics
+    headline: Optional[str] = None
+    bio: Optional[str] = None
 
-    # 2 ─ Location
-    city: str
+    # 2 — Location
+    city: Optional[str] = None
     state: Optional[str] = None
-    country: str
+    country: Optional[str] = None
 
-    # 3 ─ Availability
-    availability: AvailabilityPayload
+    # 3 — Availability
+    availability: Optional[AvailabilityPayload] = None
 
-    # 4 ─ Skills
-    skills: List[str] = Field(..., min_items=1)
+    # 4 — Skills
+    skills: Optional[List[str]] = None
 
-    # 5 ─ Education
-    educations: List[EducationPayload] = Field(..., min_items=1)
+    # 5 — Education
+    educations: Optional[List[EducationPayload]] = None
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# 🛠️  Tool implementation exposed to the agent
-# ──────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────
+# Tool exposed to the agent
+# ──────────────────────────────────────────────────────────────
 @tool
-def set_profile_fields_v1(
-    *,
-    user_email: str,
-    payload_json: str,
-) -> str:
+def set_profile_fields_v1(*, user_email: str, payload_json: str) -> str:
     """
-    Persist the given profile fields to the database and return ``"profile_updated"``.
+    Persist profile fields for `user_email` (may be partial).
 
-    Parameters
-    ----------
-    user_email
-        (Injected by the agent wrapper) the logged-in user’s e-mail.
-    payload_json
-        JSON string that must validate against ``ProfilePayload``.
+    Always prints the raw payload, any validation error, and the final data
+    saved so you can watch the process live in the Dev-server console.
     """
-    # 1) Validate & coerce ----------------------------------------------------
+    # 1) raw payload — always visible
+    print(f"[PROFILE TOOL - RAW   ] {user_email}: {payload_json.replace(chr(10),' ')}")
+    log.info(
+        "RAW payload_json from agent (%s): %s",
+        user_email,
+        payload_json.replace("\n", " "),
+    )
+
+    # 2) validate & coerce
     try:
-        data = ProfilePayload.model_validate_json(payload_json).model_dump()
-    except ValidationError as exc:  # let the agent re-phrase the error
+        data: dict = ProfilePayload.model_validate_json(payload_json).model_dump(
+            exclude_none=True
+        )
+    except ValidationError as exc:
+        print(f"[PROFILE TOOL - ERROR ] {user_email}: {exc}")
+        log.warning("❌ ValidationError for %s: %s", user_email, exc)
         raise ValueError(str(exc)) from exc
 
-    # 2) Transform for our serializer ----------------------------------------
-    availability = data.pop("availability")
-    skills = data.pop("skills")
-    educations = data.pop("educations")
+    # 3) split nested
+    availability = data.pop("availability", None)
+    skills = data.pop("skills", None)
+    educations = data.pop("educations", None)
 
-    data["availability"] = availability
-    data["skills"] = [{"name": s} for s in skills]
-    data["educations"] = educations
+    if availability is not None:
+        data["availability"] = availability
+    if skills is not None:
+        data["skills"] = [{"name": s} for s in skills]
+    if educations is not None:
+        data["educations"] = educations
 
-    # 3) Write to DB atomically ----------------------------------------------
+    # 4) DB write
     user = User.objects.get(email=user_email)
     profile, _ = Profile.objects.get_or_create(user=user)
 
@@ -114,4 +132,12 @@ def set_profile_fields_v1(
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
+    # 5) success — always visible
+    saved_json = json.dumps(data, default=str)
+    print(f"[PROFILE TOOL - SAVED ] {user_email}: {saved_json}")
+    log.info("✅ Saved for %s: %s", user_email, saved_json)
+
+    # 6) agent response
+    if settings.DEBUG:
+        return f"profile_updated | saved={saved_json}"
     return "profile_updated"
