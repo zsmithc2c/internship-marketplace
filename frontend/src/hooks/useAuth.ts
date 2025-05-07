@@ -1,27 +1,19 @@
 "use client";
 
 import { jwtDecode } from "jwt-decode";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
+
+import {
+  getAccess,
+  refreshTokens,
+  saveTokens,
+  clearTokens,
+} from "@/lib/auth";
 
 interface JwtPayload {
   role: string;
-  exp: number;
-}
-
-const ACCESS_KEY = "access";
-const REFRESH_KEY = "refresh";
-
-function saveTokens(access: string, refresh: string) {
-  localStorage.setItem(ACCESS_KEY, access);
-  localStorage.setItem(REFRESH_KEY, refresh);
-}
-function clearTokens() {
-  localStorage.removeItem(ACCESS_KEY);
-  localStorage.removeItem(REFRESH_KEY);
-}
-function getAccess() {
-  return localStorage.getItem(ACCESS_KEY);
+  exp: number; // seconds since epoch
 }
 
 export function useAuth() {
@@ -31,15 +23,23 @@ export function useAuth() {
   /* ---------- who am I? ---------- */
   const userQ = useQuery({
     queryKey: ["auth", "me"],
-    queryFn: () => {
-      const token = getAccess();
+    queryFn: async () => {
+      let token = getAccess();
       if (!token) return null;
+
       try {
         const { role, exp } = jwtDecode<JwtPayload>(token);
-        if (Date.now() / 1000 >= exp) throw new Error("expired");
+
+        // expired? → try one silent refresh
+        if (Date.now() / 1000 >= exp) {
+          token = await refreshTokens();
+          const { role: newRole } = jwtDecode<JwtPayload>(token);
+          return { role: newRole };
+        }
+
         return { role };
       } catch {
-        return null;
+        return null; // corrupt token, not logged in
       }
     },
     staleTime: Infinity,
@@ -70,10 +70,11 @@ export function useAuth() {
     router.push("/login");
   }
 
+  /* ---------- exported API ---------- */
   return {
     isLoading: userQ.isLoading,
-    user: userQ.data,         // null | { role: string }
-    login: login.mutateAsync, // call await login({ … })
+    user: userQ.data,           // null | { role: string }
+    login: login.mutateAsync,   // await login({ … })
     loginError: login.error as Error | null,
     logout,
   };

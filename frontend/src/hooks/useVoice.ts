@@ -2,17 +2,19 @@
 
 import { useMutation } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { fetchWithAuth } from "@/lib/fetchWithAuth";   // ⬅️ change
 
 /* ------------------------------------------------------------ */
 /*                          helpers                             */
 /* ------------------------------------------------------------ */
 
 async function sttRequest(audioBlob: Blob): Promise<string> {
+  /* ---- multipart/form-data ------------------------------------------- */
   const form = new FormData();
   form.append("audio", audioBlob, "speech.webm");
-  const res = await fetch("/api/voice/stt/", {
+
+  const res = await fetchWithAuth("/api/voice/stt/", {
     method: "POST",
-    credentials: "include",
     body: form,
   });
   if (!res.ok) throw new Error(await res.text());
@@ -21,10 +23,9 @@ async function sttRequest(audioBlob: Blob): Promise<string> {
 }
 
 async function ttsRequest(text: string, voice = "alloy"): Promise<string> {
-  const res = await fetch("/api/voice/tts/", {
+  const res = await fetchWithAuth("/api/voice/tts/", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
+    headers: { "Content-Type": "application/json" },  // ⬅️ ensure JSON header
     body: JSON.stringify({ text, voice }),
   });
   if (!res.ok) throw new Error(await res.text());
@@ -42,9 +43,7 @@ export function useVoice() {
   const chunks = useRef<BlobPart[]>([]);
 
   /* ---------- STT mutation ---------- */
-  const stt = useMutation({
-    mutationFn: sttRequest,
-  });
+  const stt = useMutation({ mutationFn: sttRequest });
 
   /* ---------- TTS mutation ---------- */
   const tts = useMutation({
@@ -100,7 +99,7 @@ export function useVoice() {
     sttLoading: stt.isPending,
     sttError: stt.error as Error | null,
     /* tts */
-    speak: tts.mutate, // call speak(text)
+    speak: tts.mutate,        // call speak(text)
     ttsLoading: tts.isPending,
     ttsError: tts.error as Error | null,
   };

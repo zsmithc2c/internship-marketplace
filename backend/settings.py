@@ -26,6 +26,11 @@ ALLOWED_HOSTS: list[str] = []
 # Applications
 # ───────────────────────────────────────────────────────────────
 INSTALLED_APPS = [
+    # Third-party first so their migrations run early ↓
+    "corsheaders",  # ← NEW
+    "drf_spectacular",
+    "rest_framework",
+    "rest_framework_simplejwt",
     # Django core
     "django.contrib.admin",
     "django.contrib.auth",
@@ -33,10 +38,6 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    # Third-party
-    "drf_spectacular",
-    "rest_framework",
-    "rest_framework_simplejwt",
     # Project apps
     "accounts",
     "internships",
@@ -48,6 +49,7 @@ INSTALLED_APPS = [
 # Middleware
 # ───────────────────────────────────────────────────────────────
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",  # ← NEW (must be first)
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -114,6 +116,20 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
+
+# ───────────────────────────────────────────────────────────────
+# CORS  (dev-only – loosen as needed for prod)
+# ───────────────────────────────────────────────────────────────
+CORS_ALLOW_ALL_ORIGINS = True  # allow http://localhost:* etc.
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = [  # include Auth & JSON headers
+    "authorization",
+    "content-type",
+    "accept",
+    "origin",
+    "user-agent",
+    "x-requested-with",
+]
 
 # ───────────────────────────────────────────────────────────────
 # Internationalisation / static

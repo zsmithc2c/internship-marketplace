@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from openai import OpenAI
+import asyncio
+
+from agents import Runner
+from openai import AsyncOpenAI
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -15,7 +18,8 @@ class ProfileBuilderAgentView(APIView):
     Returns: { "reply": "..." }
     """
 
-    permission_classes = [permissions.AllowAny]
+    # ⬇️  must be logged-in (JWT in Authorization header)
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
         text = request.data.get("message", "").strip()
@@ -25,13 +29,14 @@ class ProfileBuilderAgentView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        client = OpenAI()  # uses OPENAI_API_KEY
-        agent = build_profile_builder_agent(
-            client,
-            user_email=request.user.email,
-        )
+        # user is guaranteed because of IsAuthenticated
+        user_email = request.user.email
 
-        reply_chunk = agent.run({"role": "user", "content": text})
-        reply_text = reply_chunk["content"]
+        client = AsyncOpenAI()
+        agent = build_profile_builder_agent(client, user_email=user_email)
+
+        # ── run the agent in a fresh event-loop ────────────────────────────
+        result = asyncio.run(Runner.run(agent, input=text))
+        reply_text = result.final_output
 
         return Response({"reply": reply_text})

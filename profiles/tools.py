@@ -1,9 +1,8 @@
 """
 OpenAI-Agents tool: create or update an intern’s profile.
 
-The Pipeline Profile-Builder agent will call
-`set_profile_fields_v1(payload_json=…)` exactly **once** after it has gathered
-all required profile data from the user.
+The Pipeline Profile-Builder agent will call **set_profile_fields_v1**
+exactly once—after it has gathered every required profile field from the user.
 """
 
 from __future__ import annotations
@@ -11,7 +10,7 @@ from __future__ import annotations
 import datetime as _dt
 from typing import List, Literal, Optional
 
-from agents import function_tool as tool  # ← decorator alias
+from agents import function_tool as tool  # decorator that auto-generates the schema
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from pydantic import BaseModel, Field, ValidationError, validator
@@ -30,12 +29,11 @@ class AvailabilityPayload(BaseModel):
     earliest_start: Optional[_dt.date] = Field(
         None, description="YYYY-MM-DD – required when status == FROM_DATE"
     )
-    hours_per_week: Optional[int] = Field(
-        None, ge=1, le=99, description="Approximate weekly availability"
-    )
+    hours_per_week: Optional[int] = Field(None, ge=1, le=99)
     remote_ok: bool = True
     onsite_ok: bool = False
 
+    # enforce earliest_start when needed
     @validator("earliest_start", always=True)
     def _check_start(cls, v, values):  # noqa: N805
         if values.get("status") == "FROM_DATE" and v is None:
@@ -74,44 +72,38 @@ class ProfilePayload(BaseModel):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 🛠️  Tool implementation
+# 🛠️  Tool implementation exposed to the agent
 # ──────────────────────────────────────────────────────────────────────────────
-@tool  # no extra kwargs → schema stays “primitive-only”
-def set_profile_fields_v1(*, user_email: str, payload_json: str) -> str:  # noqa: D401
+@tool
+def set_profile_fields_v1(
+    *,
+    user_email: str,
+    payload_json: str,
+) -> str:
     """
-    Persist the given profile fields to the database.
+    Persist the given profile fields to the database and return ``"profile_updated"``.
 
-    Args
-    ----
-    user_email:
-        Email of the logged-in user (injected by the agent runtime).
-    payload_json:
-        A JSON string that validates against the ``ProfilePayload`` schema.
-
-    Returns
-    -------
-    str
-        The literal string ``"profile_updated"`` on success.
-
-    Raises
-    ------
-    ValueError
-        If payload validation fails (message bubbled up for the agent to re-phrase).
+    Parameters
+    ----------
+    user_email
+        (Injected by the agent wrapper) the logged-in user’s e-mail.
+    payload_json
+        JSON string that must validate against ``ProfilePayload``.
     """
-    # 1) Validate & coerce with Pydantic -------------------------------------
+    # 1) Validate & coerce ----------------------------------------------------
     try:
         data = ProfilePayload.model_validate_json(payload_json).model_dump()
-    except ValidationError as exc:  # pragma: no cover
+    except ValidationError as exc:  # let the agent re-phrase the error
         raise ValueError(str(exc)) from exc
 
-    # 2) Transform for DRF serializer ----------------------------------------
-    availability_dict = data.pop("availability")
-    skills_list = data.pop("skills")
-    educations_list = data.pop("educations")
+    # 2) Transform for our serializer ----------------------------------------
+    availability = data.pop("availability")
+    skills = data.pop("skills")
+    educations = data.pop("educations")
 
-    data["availability"] = availability_dict
-    data["skills"] = [{"name": s} for s in skills_list]
-    data["educations"] = educations_list
+    data["availability"] = availability
+    data["skills"] = [{"name": s} for s in skills]
+    data["educations"] = educations
 
     # 3) Write to DB atomically ----------------------------------------------
     user = User.objects.get(email=user_email)

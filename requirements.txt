@@ -21,3 +21,6 @@ pydantic>=2.7
 pytest==8.2.0
 ruff==0.4.4
 black==24.4.2
+
+# -- CORS helper
+django-cors-headers==4.3.1
