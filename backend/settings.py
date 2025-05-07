@@ -94,6 +94,21 @@ DATABASES = {
 }
 
 # ───────────────────────────────────────────────────────────────
+# **Caching**  (shared across threads & gunicorn workers)
+# ───────────────────────────────────────────────────────────────
+# Requires:  pip install django-redis
+REDIS_URL = config("REDIS_URL", default="redis://127.0.0.1:6379/1")
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": "redis://127.0.0.1:6379/1",
+        # No CLIENT_CLASS option → stays compatible with redis-py 4.x
+        "TIMEOUT": None,  # unlimited
+    }
+}
+
+# ───────────────────────────────────────────────────────────────
 # Password validation
 # ───────────────────────────────────────────────────────────────
 AUTH_PASSWORD_VALIDATORS = [
@@ -115,6 +130,13 @@ REST_FRAMEWORK = {
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # light global throttle: max 1 request / second per authenticated user
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.UserRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "user": "60/min",
+    },
 }
 
 # ───────────────────────────────────────────────────────────────
@@ -141,7 +163,6 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
-
 APPEND_SLASH = False
 
 # ───────────────────────────────────────────────────────────────
@@ -152,9 +173,7 @@ if DEBUG:
         "version": 1,
         "disable_existing_loggers": False,
         "formatters": {
-            "simple": {
-                "format": "%(levelname)s:%(name)s:%(message)s",
-            },
+            "simple": {"format": "%(levelname)s:%(name)s:%(message)s"},
         },
         "handlers": {
             "console": {
@@ -172,6 +191,5 @@ if DEBUG:
                 "level": "INFO",
                 "propagate": False,
             },
-            # keep httpx or others unchanged through root
         },
     }

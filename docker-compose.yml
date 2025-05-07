@@ -1,8 +1,24 @@
 version: "3.9"
 
 services:
+  # ── Django API ───────────────────────────────────────────────
+  backend:
+    build: .
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/app                       # live-reload in dev
+    env_file:
+      - .env                         # contains DATABASE_URL, CACHE_URL, etc.
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+
+  # ── Postgres (dev / test) ────────────────────────────────────
   db:
     image: postgres:16
+    restart: unless-stopped
     environment:
       POSTGRES_USER: market
       POSTGRES_PASSWORD: market
@@ -12,8 +28,10 @@ services:
     volumes:
       - db_data:/var/lib/postgresql/data
 
+  # ── Redis (cache/locking) ────────────────────────────────────
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     ports:
       - "6379:6379"
 

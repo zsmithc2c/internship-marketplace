@@ -1,26 +1,28 @@
-# profiles/agent_views.py
 from __future__ import annotations
 
 import asyncio
-from typing import List
+import base64
+from typing import List, Optional
 
 from agents import Runner
+from django.core.cache import cache
 from openai import AsyncOpenAI
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from pipeline_agents.profile_builder import build_profile_builder_agent
+from voice.views import _get_client  # reuse voice TTS helper
 
 from .models import AgentMessage
 from .serializers import AgentMessageSerializer
 
 
 # ────────────────────────────────────────────────────────────────
-# helper: build a prompt string from DB history + latest message
+# helpers
 # ────────────────────────────────────────────────────────────────
 def build_prompt(history: List[AgentMessage], latest_msg: str) -> str:
-    lines: list[str] = [
+    lines = [
         f"{'User' if m.role == AgentMessage.Role.USER else 'Assistant'}: {m.content}"
         for m in history
     ]
@@ -34,12 +36,13 @@ def build_prompt(history: List[AgentMessage], latest_msg: str) -> str:
 class ProfileBuilderAgentView(APIView):
     """
     POST /api/agent/profile-builder/
-    Body: { "message": "Hi there!" }
-
-    Returns: { "reply": "…", "profile_updated_at": "…" | null }
+    Body: { "message": "hello" }
     """
 
     permission_classes = [permissions.IsAuthenticated]
+
+    LOCK_TIMEOUT = 60  # seconds a single generation may run
+    REPLY_CACHE_SEC = 30  # seconds we reuse last reply for identical input
 
     def post(self, request, *args, **kwargs):
         latest = request.data.get("message", "").strip()
@@ -50,51 +53,84 @@ class ProfileBuilderAgentView(APIView):
             )
 
         user = request.user
+        lock_key = f"profile-builder-lock-{user.id}"
+        reply_key = f"profile-builder-lastreply-{user.id}"
 
-        # ------- save USER message ----------------------------------------
-        AgentMessage.objects.create(
-            user=user, role=AgentMessage.Role.USER, content=latest
-        )
+        # 1️⃣  Fast-path: if we *already* answered this exact input recently,
+        #     return the cached response immediately — no lock, no DB write.
+        cached = cache.get(reply_key)
+        if cached and cached.get("in_msg") == latest:
+            return Response(cached["body"])
 
-        # ------- build prompt ---------------------------------------------
-        history = list(AgentMessage.objects.filter(user=user).order_by("created_at"))
-        prompt = build_prompt(history, latest_msg=latest)
+        # 2️⃣  Acquire a lock so only ONE concurrent request runs the expensive
+        #     generation + TTS for this user.
+        got_lock = cache.add(lock_key, True, timeout=self.LOCK_TIMEOUT)
+        if not got_lock:
+            return Response(
+                {"detail": "Agent is already generating a reply, please wait."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
 
-        # ------- run agent -------------------------------------------------
-        client = AsyncOpenAI()
-        agent = build_profile_builder_agent(client, user_email=user.email)
-        result = asyncio.run(Runner.run(agent, input=prompt))
-        reply = result.final_output
+        # 3️⃣  We are the primary request holder — make sure we release the lock.
+        try:
+            # Save USER message only once we’re sure we’re the single generator
+            AgentMessage.objects.create(
+                user=user, role=AgentMessage.Role.USER, content=latest
+            )
 
-        # ------- save ASSISTANT reply -------------------------------------
-        AgentMessage.objects.create(
-            user=user, role=AgentMessage.Role.ASSISTANT, content=reply
-        )
+            # Build prompt from full history
+            history = list(
+                AgentMessage.objects.filter(user=user).order_by("created_at")
+            )
+            prompt = build_prompt(history, latest_msg=latest)
 
-        # ------- response --------------------------------------------------
-        body: dict = {"reply": reply}
-        if "profile_updated" in reply:
-            body["profile_updated_at"] = user.profile.updated_at.isoformat()
+            # Run agent (blocking for simplicity)
+            agent = build_profile_builder_agent(AsyncOpenAI(), user_email=user.email)
+            reply = asyncio.run(Runner.run(agent, input=prompt)).final_output
+
+            # Text-to-speech (best-effort; OK to skip on failure)
+            audio_base64: Optional[str] = None
+            try:
+                tts_client = _get_client()
+                speech = tts_client.audio.speech.create(
+                    model="tts-1",
+                    voice="alloy",
+                    input=reply,
+                    response_format="mp3",
+                )
+                audio_base64 = base64.b64encode(speech.content).decode("ascii")
+            except Exception:
+                import logging
+
+                logging.exception("TTS failed — continuing without audio")
+
+            # Save ASSISTANT reply
+            AgentMessage.objects.create(
+                user=user, role=AgentMessage.Role.ASSISTANT, content=reply
+            )
+
+            body: dict = {"reply": reply}
+            if audio_base64:
+                body["audio_base64"] = audio_base64
+            if "profile_updated" in reply:
+                body["profile_updated_at"] = user.profile.updated_at.isoformat()
+
+            # Cache the pair (input ➜ response) so any duplicates within the next
+            # 30 s hit the fast-path at the top.
+            cache.set(reply_key, {"in_msg": latest, "body": body}, self.REPLY_CACHE_SEC)
+
+        finally:
+            cache.delete(lock_key)
 
         return Response(body)
 
 
 # ────────────────────────────────────────────────────────────────
-# history endpoint (read-only)
+# history endpoint
 # ────────────────────────────────────────────────────────────────
 class AgentHistoryView(APIView):
-    """
-    GET /api/agent/profile-builder/history/
-
-    Returns: [
-      { "role": "assistant", "content": "…", "created_at": "…" },
-      …
-    ]
-    """
-
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
         qs = AgentMessage.objects.filter(user=request.user).order_by("created_at")
-        data = AgentMessageSerializer(qs, many=True).data
-        return Response(data)
+        return Response(AgentMessageSerializer(qs, many=True).data)

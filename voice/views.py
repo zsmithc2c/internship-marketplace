@@ -1,3 +1,4 @@
+# voice/views.py
 from __future__ import annotations
 
 import base64
@@ -17,10 +18,6 @@ except ImportError:  # pragma: no cover
 
 
 def _get_client() -> Any:  # returns OpenAI.Client
-    """
-    Lazy-init OpenAI client.
-    Expects OPENAI_API_KEY in env or Django settings.
-    """
     if OpenAI is None:
         raise RuntimeError("openai package not installed")
     return OpenAI(api_key=getattr(settings, "OPENAI_API_KEY", None))
@@ -29,10 +26,8 @@ def _get_client() -> Any:  # returns OpenAI.Client
 class SpeechToTextView(APIView):
     """
     POST /api/voice/stt/
-    Body:
-      • multipart/form-data with field 'audio'  (preferred)
-      • OR JSON { "audio_base64": "..." }
-    Returns: { "text": "..." }
+    Body: multipart/form-data 'audio'  OR  JSON { "audio_base64": "…" }
+    Returns: { "text": "…" }
     """
 
     permission_classes = [permissions.IsAuthenticated]
@@ -52,21 +47,22 @@ class SpeechToTextView(APIView):
                 )
             audio_bytes = base64.b64decode(audio_b64)
 
+        # ---- wrap bytes with a filename so OpenAI detects .webm ----
+        bio = io.BytesIO(audio_bytes)
+        bio.name = "speech.webm"  # 👈 key fix
+
         # ---- OpenAI transcription ----
-        # Uses 'whisper-1' by default; adjust model as needed.
         transcript = client.audio.transcriptions.create(
             model="whisper-1",
-            file=io.BytesIO(audio_bytes),
-            # language could be auto or explicit
+            file=bio,
         )
-
         return Response({"text": transcript.text})
 
 
 class TextToSpeechView(APIView):
     """
     POST /api/voice/tts/
-    JSON body: { "text": "...", "voice": "alloy" }
+    JSON: { "text": "...", "voice": "alloy" }
     Returns: { "audio_base64": "..." }
     """
 
@@ -83,12 +79,11 @@ class TextToSpeechView(APIView):
 
         voice = request.data.get("voice", "alloy")
 
-        speech = client.audio.speech.create(
+        audio_bytes = client.audio.speech.create(
             model="tts-1",
             voice=voice,
             input=text,
-            format="mp3",
+            response_format="mp3",  # 👈 new arg name
         )
-        audio_b64 = base64.b64encode(speech.read()).decode("ascii")
-
+        audio_b64 = base64.b64encode(audio_bytes).decode("ascii")
         return Response({"audio_base64": audio_b64})
