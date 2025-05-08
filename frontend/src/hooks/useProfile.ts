@@ -44,13 +44,13 @@ export type Profile = {
 /* ------------------------------------------------------------ */
 
 async function getProfile(): Promise<Profile> {
-  const res = await fetchWithAuth("/api/profile/me/");
+  const res = await fetchWithAuth("/api/profile/me");
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
 async function putProfile(data: Partial<Profile>): Promise<Profile> {
-  const res = await fetchWithAuth("/api/profile/me/", {
+  const res = await fetchWithAuth("/api/profile/me", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),

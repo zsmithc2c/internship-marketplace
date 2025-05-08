@@ -94,19 +94,23 @@ DATABASES = {
 }
 
 # ───────────────────────────────────────────────────────────────
-# **Caching**  (shared across threads & gunicorn workers)
+# Caching  (Redis in prod; in-memory for local dev)
 # ───────────────────────────────────────────────────────────────
-# Requires:  pip install django-redis
-REDIS_URL = config("REDIS_URL", default="redis://127.0.0.1:6379/1")
-
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": "redis://127.0.0.1:6379/1",
-        # No CLIENT_CLASS option → stays compatible with redis-py 4.x
-        "TIMEOUT": None,  # unlimited
+if DEBUG:  # True in your dev env
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "dev-cache",
+        }
     }
-}
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": "redis://127.0.0.1:6379/1",
+            "TIMEOUT": None,
+        }
+    }
 
 # ───────────────────────────────────────────────────────────────
 # Password validation

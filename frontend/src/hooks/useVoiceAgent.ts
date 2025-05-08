@@ -11,7 +11,7 @@ export type Msg = { role: "user" | "assistant"; content: string };
 
 /* ---------- helpers ---------- */
 async function getHistory(): Promise<Msg[]> {
-  const res = await fetchWithAuth("/api/agent/profile-builder/history/");
+  const res = await fetchWithAuth("/api/agent/profile-builder/history");
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
@@ -23,7 +23,7 @@ type AgentResponse = {
 };
 
 async function sendToAgent(body: { message: string }): Promise<AgentResponse> {
-  const res = await fetchWithAuth("/api/agent/profile-builder/", {
+  const res = await fetchWithAuth("/api/agent/profile-builder", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -45,7 +45,12 @@ export function useVoiceAgent() {
 
   /* -------- local history state -------- */
   const [history, setHistory] = useState<Msg[]>(serverHistory);
-  useEffect(() => setHistory(serverHistory), [serverHistory]);
+
+  // keep local copy in sync — run only when the length changes
+  useEffect(() => {
+    setHistory(serverHistory);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverHistory.length]);
 
   /* -------- voice (record / stt / tts) -------- */
   const {
@@ -76,9 +81,7 @@ export function useVoiceAgent() {
       // optional TTS playback
       if (audio_base64) {
         const audio = new Audio(`data:audio/mp3;base64,${audio_base64}`);
-        audio.play().catch(() => {
-          /* autoplay might be blocked */
-        });
+        audio.play().catch(() => {/* autoplay might be blocked */});
       }
 
       // profile cache invalidation
@@ -88,24 +91,17 @@ export function useVoiceAgent() {
     },
   });
 
-  /* pull out stable refs so the effect deps stay clean */
-  const { mutate: send, isPending } = mutation;
-
   /* -------- de-dup + single-flight guard -------- */
   const lastSentRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!transcript || sttLoading) return;
-
-    // 1. ignore identical transcript twice
-    if (transcript === lastSentRef.current) return;
-
-    // 2. wait until the current request finishes
-    if (isPending) return;
+    if (transcript === lastSentRef.current) return;   // ignore duplicate
+    if (mutation.isPending) return;                  // wait for current send
 
     lastSentRef.current = transcript;
-    send(transcript);
-  }, [transcript, sttLoading, isPending, send]);
+    mutation.mutate(transcript);
+  }, [transcript, sttLoading, mutation]);
 
   /* -------- exported API -------- */
   return {
@@ -115,7 +111,7 @@ export function useVoiceAgent() {
     stop,
     /* chat state */
     history,
-    sending: isPending || sttLoading,
+    sending: mutation.isPending || sttLoading,
     error: sttError || (mutation.error as Error | null),
   };
 }
