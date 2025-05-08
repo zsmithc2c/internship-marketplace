@@ -7,7 +7,7 @@ const navLinks = [
   { href: "/dashboard",   label: "Dashboard" },
   { href: "/account",     label: "Account"   },
   { href: "/profile",     label: "Profile"   },
-  { href: "/profile/builder",  label: "Profile Builder" },
+  { href: "/profile/builder",  label: "Pipeline Agent" },
   { href: "/internships", label: "Internships" },
 ];
 
