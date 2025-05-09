@@ -858,130 +858,6 @@ export {
 }
 </file>
 
-<file path="frontend/src/hooks/useVoiceAgent.ts">
-// frontend/src/hooks/useVoiceAgent.ts
-"use client";
-
-import { useEffect, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useVoice } from "@/hooks/useVoice";
-import { fetchWithAuth } from "@/lib/fetchWithAuth";
-
-/* ---------- types ---------- */
-export type Msg = { role: "user" | "assistant"; content: string };
-
-/* ---------- helpers ---------- */
-async function getHistory(): Promise<Msg[]> {
-  const res = await fetchWithAuth("/api/agent/profile-builder/history/");
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
-}
-
-type AgentResponse = {
-  reply: string;
-  audio_base64?: string;
-  profile_updated_at?: string;
-};
-
-async function sendToAgent(body: { message: string }): Promise<AgentResponse> {
-  const res = await fetchWithAuth("/api/agent/profile-builder/", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
-}
-
-/* ---------- main hook ---------- */
-export function useVoiceAgent() {
-  const qc = useQueryClient();
-
-  /* -------- server-persisted history -------- */
-  const { data: serverHistory = [] } = useQuery({
-    queryKey: ["chat", "profile-builder"],
-    queryFn: getHistory,
-    staleTime: Infinity,
-  });
-
-  /* -------- local history state -------- */
-  const [history, setHistory] = useState<Msg[]>(serverHistory);
-  useEffect(() => setHistory(serverHistory), [serverHistory]);
-
-  /* -------- voice (record / stt / tts) -------- */
-  const {
-    isRecording,
-    start,
-    stop,
-    transcript,
-    sttLoading,
-    sttError,
-  } = useVoice();
-
-  /* -------- agent mutation -------- */
-  const mutation = useMutation({
-    mutationFn: (msg: string) => sendToAgent({ message: msg }),
-    onSuccess: ({ reply, audio_base64, profile_updated_at }, userMsg) => {
-      // update history (local + react-query cache)
-      setHistory((h) => [
-        ...h,
-        { role: "user", content: userMsg },
-        { role: "assistant", content: reply },
-      ]);
-      qc.setQueryData(["chat", "profile-builder"], (old: Msg[] = []) => [
-        ...old,
-        { role: "user", content: userMsg },
-        { role: "assistant", content: reply },
-      ]);
-
-      // optional TTS playback
-      if (audio_base64) {
-        const audio = new Audio(`data:audio/mp3;base64,${audio_base64}`);
-        audio.play().catch(() => {
-          /* autoplay might be blocked */
-        });
-      }
-
-      // profile cache invalidation
-      if (profile_updated_at) {
-        qc.invalidateQueries({ queryKey: ["profile", "me"] });
-      }
-    },
-  });
-
-  /* pull out stable refs so the effect deps stay clean */
-  const { mutate: send, isPending } = mutation;
-
-  /* -------- de-dup + single-flight guard -------- */
-  const lastSentRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!transcript || sttLoading) return;
-
-    // 1. ignore identical transcript twice
-    if (transcript === lastSentRef.current) return;
-
-    // 2. wait until the current request finishes
-    if (isPending) return;
-
-    lastSentRef.current = transcript;
-    send(transcript);
-  }, [transcript, sttLoading, isPending, send]);
-
-  /* -------- exported API -------- */
-  return {
-    /* voice controls */
-    isRecording,
-    start,
-    stop,
-    /* chat state */
-    history,
-    sending: isPending || sttLoading,
-    error: sttError || (mutation.error as Error | null),
-  };
-}
-</file>
-
 <file path="frontend/.gitignore">
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
@@ -2068,89 +1944,6 @@ export function useAuth() {
 }
 </file>
 
-<file path="frontend/src/hooks/useProfile.ts">
-"use client";
-
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { fetchWithAuth } from "@/lib/fetchWithAuth";   // ⬅️ UPDATED
-
-/* ------------------------------------------------------------ */
-/*                           types                              */
-/* ------------------------------------------------------------ */
-
-export type Availability = {
-  status: "IMMEDIATELY" | "FROM_DATE" | "UNAVAILABLE";
-  earliest_start?: string;      // YYYY-MM-DD
-  hours_per_week?: number;
-  remote_ok: boolean;
-  onsite_ok: boolean;
-};
-
-export type Education = {
-  id?: number;
-  institution: string;
-  degree?: string;
-  field_of_study?: string;
-  start_date: string;           // YYYY-MM-DD
-  end_date?: string;
-  gpa?: number;
-  description?: string;
-};
-
-export type Profile = {
-  id: number;
-  headline: string;
-  bio: string;
-  city: string;
-  state?: string;
-  country: string;
-  availability: Availability;
-  skills: { id?: number; name: string }[];
-  educations: Education[];
-  updated_at: string;
-};
-
-/* ------------------------------------------------------------ */
-/*                     helper functions                         */
-/* ------------------------------------------------------------ */
-
-async function getProfile(): Promise<Profile> {
-  const res = await fetchWithAuth("/api/profile/me/");
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
-}
-
-async function putProfile(data: Partial<Profile>): Promise<Profile> {
-  const res = await fetchWithAuth("/api/profile/me/", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
-}
-
-/* ------------------------------------------------------------ */
-/*                      exported hooks                          */
-/* ------------------------------------------------------------ */
-
-export function useProfile() {
-  return useQuery({
-    queryKey: ["profile", "me"],
-    queryFn: getProfile,
-    staleTime: 60 * 1000, // 1 minute
-  });
-}
-
-export function useUpdateProfile() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: putProfile,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["profile", "me"] }),
-  });
-}
-</file>
-
 <file path="frontend/src/hooks/useVoice.ts">
 "use client";
 
@@ -2260,51 +2053,123 @@ export function useVoice() {
 }
 </file>
 
-<file path="frontend/next.config.ts">
-import type { NextConfig } from "next";
+<file path="frontend/src/hooks/useVoiceAgent.ts">
+// frontend/src/hooks/useVoiceAgent.ts
+"use client";
 
-const nextConfig: NextConfig = {
-  async rewrites() {
-    return [
-      {
-        source: "/api/:path*",
-        destination: "http://localhost:8000/api/:path*", // Django dev server
-      },
-    ];
-  },
+import { useEffect, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useVoice } from "@/hooks/useVoice";
+import { fetchWithAuth } from "@/lib/fetchWithAuth";
+
+/* ---------- types ---------- */
+export type Msg = { role: "user" | "assistant"; content: string };
+
+/* ---------- helpers ---------- */
+async function getHistory(): Promise<Msg[]> {
+  const res = await fetchWithAuth("/api/agent/profile-builder/history");
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+type AgentResponse = {
+  reply: string;
+  audio_base64?: string;
+  profile_updated_at?: string;
 };
 
-export default nextConfig;
-</file>
+async function sendToAgent(body: { message: string }): Promise<AgentResponse> {
+  const res = await fetchWithAuth("/api/agent/profile-builder", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
 
-<file path="frontend/tsconfig.json">
-{
-  "compilerOptions": {
-    "target": "ES2017",
-    "lib": ["dom", "dom.iterable", "esnext"],
-    "allowJs": true,
-    "skipLibCheck": true,
-    "strict": true,
-    "noEmit": true,
-    "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "jsx": "preserve",
-    "incremental": true,
-    "plugins": [
-      {
-        "name": "next"
+/* ---------- main hook ---------- */
+export function useVoiceAgent() {
+  const qc = useQueryClient();
+
+  /* -------- server-persisted history -------- */
+  const { data: serverHistory = [] } = useQuery({
+    queryKey: ["chat", "profile-builder"],
+    queryFn: getHistory,
+    staleTime: Infinity,
+  });
+
+  /* -------- local history state -------- */
+  const [history, setHistory] = useState<Msg[]>(serverHistory);
+
+  // keep local copy in sync — run only when the length changes
+  useEffect(() => {
+    setHistory(serverHistory);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverHistory.length]);
+
+  /* -------- voice (record / stt / tts) -------- */
+  const {
+    isRecording,
+    start,
+    stop,
+    transcript,
+    sttLoading,
+    sttError,
+  } = useVoice();
+
+  /* -------- agent mutation -------- */
+  const mutation = useMutation({
+    mutationFn: (msg: string) => sendToAgent({ message: msg }),
+    onSuccess: ({ reply, audio_base64, profile_updated_at }, userMsg) => {
+      // update history (local + react-query cache)
+      setHistory((h) => [
+        ...h,
+        { role: "user", content: userMsg },
+        { role: "assistant", content: reply },
+      ]);
+      qc.setQueryData(["chat", "profile-builder"], (old: Msg[] = []) => [
+        ...old,
+        { role: "user", content: userMsg },
+        { role: "assistant", content: reply },
+      ]);
+
+      // optional TTS playback
+      if (audio_base64) {
+        const audio = new Audio(`data:audio/mp3;base64,${audio_base64}`);
+        audio.play().catch(() => {/* autoplay might be blocked */});
       }
-    ],
-    "paths": {
-      "@/*": ["./src/*"],
-      "@app/*": ["./app/*"] 
-    }
-  },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+
+      // profile cache invalidation
+      if (profile_updated_at) {
+        qc.invalidateQueries({ queryKey: ["profile", "me"] });
+      }
+    },
+  });
+
+  /* -------- de-dup + single-flight guard -------- */
+  const lastSentRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!transcript || sttLoading) return;
+    if (transcript === lastSentRef.current) return;   // ignore duplicate
+    if (mutation.isPending) return;                  // wait for current send
+
+    lastSentRef.current = transcript;
+    mutation.mutate(transcript);
+  }, [transcript, sttLoading, mutation]);
+
+  /* -------- exported API -------- */
+  return {
+    /* voice controls */
+    isRecording,
+    start,
+    stop,
+    /* chat state */
+    history,
+    sending: mutation.isPending || sttLoading,
+    error: sttError || (mutation.error as Error | null),
+  };
 }
 </file>
 
@@ -2587,22 +2452,6 @@ class ProfileSerializer(serializers.ModelSerializer):
             self._sync_educations(instance, educations_data)
 
         return instance
-</file>
-
-<file path="voice/urls.py">
-# voice/urls.py
-from django.urls import path
-
-from .views import SpeechToTextView, TextToSpeechView
-
-app_name = "voice"
-
-urlpatterns = [
-    # Speech-to-Text  →  POST /api/voice/stt/
-    path("voice/stt/", SpeechToTextView.as_view(), name="voice-stt"),
-    # Text-to-Speech  →  POST /api/voice/tts/
-    path("voice/tts/", TextToSpeechView.as_view(), name="voice-tts"),
-]
 </file>
 
 <file path="voice/views.py">
@@ -3513,6 +3362,107 @@ export function useAgentChat() {
 }
 </file>
 
+<file path="frontend/src/hooks/useProfile.ts">
+"use client";
+
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { fetchWithAuth } from "@/lib/fetchWithAuth";   // ⬅️ UPDATED
+
+/* ------------------------------------------------------------ */
+/*                           types                              */
+/* ------------------------------------------------------------ */
+
+export type Availability = {
+  status: "IMMEDIATELY" | "FROM_DATE" | "UNAVAILABLE";
+  earliest_start?: string;      // YYYY-MM-DD
+  hours_per_week?: number;
+  remote_ok: boolean;
+  onsite_ok: boolean;
+};
+
+export type Education = {
+  id?: number;
+  institution: string;
+  degree?: string;
+  field_of_study?: string;
+  start_date: string;           // YYYY-MM-DD
+  end_date?: string;
+  gpa?: number;
+  description?: string;
+};
+
+export type Profile = {
+  id: number;
+  headline: string;
+  bio: string;
+  city: string;
+  state?: string;
+  country: string;
+  availability: Availability;
+  skills: { id?: number; name: string }[];
+  educations: Education[];
+  updated_at: string;
+};
+
+/* ------------------------------------------------------------ */
+/*                     helper functions                         */
+/* ------------------------------------------------------------ */
+
+async function getProfile(): Promise<Profile> {
+  const res = await fetchWithAuth("/api/profile/me");
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+async function putProfile(data: Partial<Profile>): Promise<Profile> {
+  const res = await fetchWithAuth("/api/profile/me", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+/* ------------------------------------------------------------ */
+/*                      exported hooks                          */
+/* ------------------------------------------------------------ */
+
+export function useProfile() {
+  return useQuery({
+    queryKey: ["profile", "me"],
+    queryFn: getProfile,
+    staleTime: 60 * 1000, // 1 minute
+  });
+}
+
+export function useUpdateProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: putProfile,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["profile", "me"] }),
+  });
+}
+</file>
+
+<file path="frontend/next.config.ts">
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  trailingSlash: true,                 // ← ADD THIS LINE
+  async rewrites() {
+    return [
+      {
+        source: "/api/:path*",
+        destination: "http://127.0.0.1:8000/api/:path*", // keep as-is
+      },
+    ];
+  },
+};
+
+export default nextConfig;
+</file>
+
 <file path="frontend/package.json">
 {
   "name": "frontend",
@@ -3551,6 +3501,38 @@ export function useAgentChat() {
     "tw-animate-css": "^1.2.9",
     "typescript": "^5"
   }
+}
+</file>
+
+<file path="frontend/tsconfig.json">
+{
+  "compilerOptions": {
+    "baseUrl": ".", 
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./src/*"],
+      "@app/*": ["./app/*"] 
+    }
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
 }
 </file>
 
@@ -3698,6 +3680,24 @@ def set_profile_fields_v1(*, user_email: str, payload_json: str) -> str:
     if settings.DEBUG:
         return f"profile_updated | saved={saved_json}"
     return "profile_updated"
+</file>
+
+<file path="voice/urls.py">
+# voice/urls.py
+from django.urls import path
+
+from .views import SpeechToTextView, TextToSpeechView
+
+app_name = "voice"
+
+urlpatterns = [
+    # Speech-to-Text  →  POST /api/voice/stt
+    path("voice/stt/", SpeechToTextView.as_view(), name="voice-stt"),
+    path("voice/stt", SpeechToTextView.as_view()),
+    # Text-to-Speech  →  POST /api/voice/tts
+    path("voice/tts/", TextToSpeechView.as_view(), name="voice-tts"),
+    path("voice/tts", TextToSpeechView.as_view()),
+]
 </file>
 
 <file path="frontend/app/profile/page.tsx">
@@ -3863,35 +3863,6 @@ export default function ProfilePage() {
 }
 </file>
 
-<file path="profiles/urls.py">
-# profiles/urls.py
-from django.urls import path
-
-from .agent_views import AgentHistoryView, ProfileBuilderAgentView
-from .views import ProfileMeView, SkillListView
-
-app_name = "profiles"
-
-urlpatterns = [
-    # ── profile & skills ─────────────────────────────
-    path("profile/me/", ProfileMeView.as_view(), name="profile-me"),
-    path("skills/", SkillListView.as_view(), name="skill-list"),
-    # ── agent chat & save ────────────────────────────
-    path(
-        "agent/profile-builder/",
-        ProfileBuilderAgentView.as_view(),
-        name="agent-profile-builder",
-    ),
-    path("agent/profile-builder", ProfileBuilderAgentView.as_view()),
-    # ── chat history ────────────────────────────────
-    path(
-        "agent/profile-builder/history/",
-        AgentHistoryView.as_view(),
-        name="agent-history",
-    ),
-]
-</file>
-
 <file path="backend/urls.py">
 # backend/urls.py
 """
@@ -3927,6 +3898,38 @@ urlpatterns = [
         SpectacularSwaggerView.as_view(url_name="schema"),
         name="swagger-ui",
     ),
+]
+</file>
+
+<file path="profiles/urls.py">
+# profiles/urls.py
+from django.urls import path
+
+from .agent_views import AgentHistoryView, ProfileBuilderAgentView
+from .views import ProfileMeView, SkillListView
+
+app_name = "profiles"
+
+urlpatterns = [
+    # ── profile & skills ─────────────────────────────
+    path("profile/me/", ProfileMeView.as_view(), name="profile-me"),
+    path("profile/me", ProfileMeView.as_view()),  # no-slash
+    path("skills/", SkillListView.as_view(), name="skill-list"),
+    path("skills", SkillListView.as_view()),  # no-slash
+    # ── agent chat & save ────────────────────────────
+    path(
+        "agent/profile-builder/",
+        ProfileBuilderAgentView.as_view(),
+        name="agent-profile-builder",
+    ),
+    path("agent/profile-builder", ProfileBuilderAgentView.as_view()),  # no-slash
+    # ── chat history ────────────────────────────────
+    path(
+        "agent/profile-builder/history/",
+        AgentHistoryView.as_view(),
+        name="agent-history",
+    ),
+    path("agent/profile-builder/history", AgentHistoryView.as_view()),  # no-slash
 ]
 </file>
 
@@ -4409,19 +4412,23 @@ DATABASES = {
 }
 
 # ───────────────────────────────────────────────────────────────
-# **Caching**  (shared across threads & gunicorn workers)
+# Caching  (Redis in prod; in-memory for local dev)
 # ───────────────────────────────────────────────────────────────
-# Requires:  pip install django-redis
-REDIS_URL = config("REDIS_URL", default="redis://127.0.0.1:6379/1")
-
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": "redis://127.0.0.1:6379/1",
-        # No CLIENT_CLASS option → stays compatible with redis-py 4.x
-        "TIMEOUT": None,  # unlimited
+if DEBUG:  # True in your dev env
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "dev-cache",
+        }
     }
-}
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": "redis://127.0.0.1:6379/1",
+            "TIMEOUT": None,
+        }
+    }
 
 # ───────────────────────────────────────────────────────────────
 # Password validation

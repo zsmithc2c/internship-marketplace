@@ -2,31 +2,57 @@
 "use client";
 
 import { useVoiceAgent } from "@/hooks/useVoiceAgent";
+import { useEffect, useMemo, useRef } from "react";
 
 export default function VoiceAgentChat() {
   const { isRecording, start, stop, history, sending, error } = useVoiceAgent();
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+
+  /* auto-scroll to newest line */
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [history.length, sending]);
+
+  /* preserve order (history already oldest→newest) */
+  const ordered = useMemo(() => [...history], [history]);
 
   /* ---------- render ---------- */
   return (
     <div className="mx-auto max-w-xl space-y-4">
       {/* CHAT HISTORY */}
-      <div className="h-96 overflow-y-auto rounded border p-4">
-        {history.map((m, i) => (
-          <p
-            key={i}
-            className={
-              m.role === "user"
-                ? "text-right text-blue-800"
-                : "text-left text-gray-800"
-            }
-          >
-            <span className="mr-1 font-bold">
-              {m.role === "user" ? "You:" : "AI:"}
-            </span>
-            {m.content}
+      <div className="h-96 overflow-y-auto rounded border p-4 text-sm leading-relaxed">
+        {ordered.length ? (
+          ordered.map((m, i) => {
+            const isLastAssistant =
+              i === ordered.length - 1 && m.role === "assistant";
+            return (
+              <p
+                key={i}
+                className={
+                  m.role === "user"
+                    ? "text-right text-blue-800"
+                    : "text-left text-gray-800"
+                }
+              >
+                <span className="mr-1 font-bold">
+                  {m.role === "user" ? "You:" : "AI:"}
+                </span>
+                {m.content}
+                {isLastAssistant && sending && (
+                  <span className="animate-pulse"> █</span>
+                )}
+              </p>
+            );
+          })
+        ) : (
+          <p className="text-center text-muted-foreground">
+            No messages yet – press &amp; hold the mic to start.
           </p>
-        ))}
-        {sending && <p className="italic text-gray-500">…thinking</p>}
+        )}
+        {sending && !ordered.length && (
+          <p className="italic text-gray-500">…thinking</p>
+        )}
+        <div ref={bottomRef} />
       </div>
 
       {/* ERROR */}
@@ -39,7 +65,6 @@ export default function VoiceAgentChat() {
       {/* MIC BUTTON */}
       <div className="flex justify-center">
         <button
-          /* ONE pointer stream = no duplicate on hybrid devices */
           onPointerDown={start}
           onPointerUp={stop}
           onPointerCancel={stop}

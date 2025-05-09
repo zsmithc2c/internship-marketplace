@@ -1,48 +1,57 @@
+# profiles/agent_views.py
 from __future__ import annotations
 
 import asyncio
 import base64
-from typing import List, Optional
+import json
+import queue
+import threading
+from typing import Generator, List, Optional
 
 from agents import Runner
 from django.core.cache import cache
+from django.http import StreamingHttpResponse
 from openai import AsyncOpenAI
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from pipeline_agents.profile_builder import build_profile_builder_agent
-from voice.views import _get_client  # reuse voice TTS helper
+from voice.views import _get_client
 
 from .models import AgentMessage
 from .serializers import AgentMessageSerializer
 
 
-# ────────────────────────────────────────────────────────────────
-# helpers
-# ────────────────────────────────────────────────────────────────
-def build_prompt(history: List[AgentMessage], latest_msg: str) -> str:
-    lines = [
-        f"{'User' if m.role == AgentMessage.Role.USER else 'Assistant'}: {m.content}"
-        for m in history
-    ]
-    lines.append(f"User: {latest_msg}")
-    return "\n".join(lines)
+# ───────────────────────── helpers ────────────────────────────
+def make_prompt(hist: List[AgentMessage], latest: str) -> str:
+    return "\n".join(
+        [
+            *(
+                f"{'User' if m.role == 'user' else 'Assistant'}: {m.content}"
+                for m in hist
+            ),
+            f"User: {latest}",
+        ]
+    )
 
 
-# ────────────────────────────────────────────────────────────────
-# main chat view
-# ────────────────────────────────────────────────────────────────
+def chunk(text: str, n: int = 20) -> list[str]:
+    """Split text into ≤ n-char pieces (at least one piece)."""
+    return [text[i : i + n] for i in range(0, len(text), n)] or [""]
+
+
+# ───────────────────────── main view ───────────────────────────
 class ProfileBuilderAgentView(APIView):
     """
     POST /api/agent/profile-builder/
-    Body: { "message": "hello" }
+    Body   : { "message": "hi" }
+    Stream : ND-JSON chunks (delta/done).
     """
 
     permission_classes = [permissions.IsAuthenticated]
-
-    LOCK_TIMEOUT = 60  # seconds a single generation may run
-    REPLY_CACHE_SEC = 30  # seconds we reuse last reply for identical input
+    LOCK_TIMEOUT = 60
+    CONTENT_TYPE = "application/x-ndjson"
 
     def post(self, request, *args, **kwargs):
         latest = request.data.get("message", "").strip()
@@ -54,80 +63,90 @@ class ProfileBuilderAgentView(APIView):
 
         user = request.user
         lock_key = f"profile-builder-lock-{user.id}"
-        reply_key = f"profile-builder-lastreply-{user.id}"
 
-        # 1️⃣  Fast-path: if we *already* answered this exact input recently,
-        #     return the cached response immediately — no lock, no DB write.
-        cached = cache.get(reply_key)
-        if cached and cached.get("in_msg") == latest:
-            return Response(cached["body"])
-
-        # 2️⃣  Acquire a lock so only ONE concurrent request runs the expensive
-        #     generation + TTS for this user.
-        got_lock = cache.add(lock_key, True, timeout=self.LOCK_TIMEOUT)
-        if not got_lock:
+        # one-at-a-time guard
+        if not cache.add(lock_key, True, self.LOCK_TIMEOUT):
             return Response(
                 {"detail": "Agent is already generating a reply, please wait."},
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 
-        # 3️⃣  We are the primary request holder — make sure we release the lock.
-        try:
-            # Save USER message only once we’re sure we’re the single generator
-            AgentMessage.objects.create(
-                user=user, role=AgentMessage.Role.USER, content=latest
-            )
+        # save user line
+        AgentMessage.objects.create(user=user, role="user", content=latest)
 
-            # Build prompt from full history
-            history = list(
-                AgentMessage.objects.filter(user=user).order_by("created_at")
-            )
-            prompt = build_prompt(history, latest_msg=latest)
+        # prompt
+        history = list(AgentMessage.objects.filter(user=user).order_by("created_at"))
+        prompt = make_prompt(history, latest)
 
-            # Run agent (blocking for simplicity)
-            agent = build_profile_builder_agent(AsyncOpenAI(), user_email=user.email)
-            reply = asyncio.run(Runner.run(agent, input=prompt)).final_output
+        agent = build_profile_builder_agent(AsyncOpenAI(), user_email=user.email)
+        q: "queue.Queue[str | dict]" = queue.Queue()
 
-            # Text-to-speech (best-effort; OK to skip on failure)
-            audio_base64: Optional[str] = None
+        # ---------- background worker (runs coroutine) ----------
+        def worker() -> None:
             try:
-                tts_client = _get_client()
-                speech = tts_client.audio.speech.create(
-                    model="tts-1",
-                    voice="alloy",
-                    input=reply,
-                    response_format="mp3",
-                )
-                audio_base64 = base64.b64encode(speech.content).decode("ascii")
-            except Exception:
-                import logging
 
-                logging.exception("TTS failed — continuing without audio")
+                async def _run() -> str:
+                    res = await Runner.run(agent, input=prompt)
+                    return res.final_output
 
-            # Save ASSISTANT reply
-            AgentMessage.objects.create(
-                user=user, role=AgentMessage.Role.ASSISTANT, content=reply
-            )
+                reply: str = asyncio.run(_run())  # await inside thread
 
-            body: dict = {"reply": reply}
-            if audio_base64:
-                body["audio_base64"] = audio_base64
-            if "profile_updated" in reply:
-                body["profile_updated_at"] = user.profile.updated_at.isoformat()
+                for part in chunk(reply, 20):
+                    q.put(part)
+                q.put({"__done__": True, "reply": reply})
 
-            # Cache the pair (input ➜ response) so any duplicates within the next
-            # 30 s hit the fast-path at the top.
-            cache.set(reply_key, {"in_msg": latest, "body": body}, self.REPLY_CACHE_SEC)
+            except Exception as exc:  # propagate to HTTP stream
+                q.put({"__error__": str(exc)})
+            finally:
+                cache.delete(lock_key)  # always release
 
-        finally:
-            cache.delete(lock_key)
+        threading.Thread(target=worker, daemon=True).start()
 
-        return Response(body)
+        # ---------- HTTP event-stream ----------
+        def event_stream() -> Generator[bytes, None, None]:
+            while True:
+                item = q.get()
+                if isinstance(item, str):  # delta token
+                    yield json.dumps({"delta": item, "done": False}).encode() + b"\n"
+                elif "__error__" in item:  # worker crashed
+                    yield json.dumps({"error": item["__error__"]}).encode() + b"\n"
+                    break
+                else:  # done sentinel
+                    reply: str = item["reply"]
+
+                    # best-effort TTS
+                    audio_b64: Optional[str] = None
+                    try:
+                        speech = _get_client().audio.speech.create(
+                            model="tts-1",
+                            voice="alloy",
+                            input=reply,
+                            response_format="mp3",
+                        )
+                        audio_b64 = base64.b64encode(speech.content).decode()
+                    except Exception:
+                        pass
+
+                    # persist assistant
+                    AgentMessage.objects.create(
+                        user=user, role="assistant", content=reply
+                    )
+
+                    payload: dict = {"delta": "", "done": True}
+                    if audio_b64:
+                        payload["audio_base64"] = audio_b64
+                    if "profile_updated" in reply:
+                        payload["profile_updated_at"] = (
+                            user.profile.updated_at.isoformat()
+                        )
+
+                    yield json.dumps(payload).encode() + b"\n"
+                    break
+
+        return StreamingHttpResponse(event_stream(), content_type=self.CONTENT_TYPE)
 
 
-# ────────────────────────────────────────────────────────────────
-# history endpoint
-# ────────────────────────────────────────────────────────────────
+# ───────────────────────── history endpoint ────────────────────
 class AgentHistoryView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
