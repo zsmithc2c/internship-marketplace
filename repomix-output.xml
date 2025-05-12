@@ -125,6 +125,7 @@ internships/
   views.py
 pipeline_agents/
   __init__.py
+  openai_client.py
   profile_builder.py
 profiles/
   migrations/
@@ -578,80 +579,6 @@ export default function AgentChat() {
 }
 </file>
 
-<file path="frontend/app/components/VoiceAgentChat.tsx">
-// frontend/app/components/VoiceAgentChat.tsx
-"use client";
-
-import { useVoiceAgent } from "@/hooks/useVoiceAgent";
-
-export default function VoiceAgentChat() {
-  const { isRecording, start, stop, history, sending, error } = useVoiceAgent();
-
-  /* ---------- render ---------- */
-  return (
-    <div className="mx-auto max-w-xl space-y-4">
-      {/* CHAT HISTORY */}
-      <div className="h-96 overflow-y-auto rounded border p-4">
-        {history.map((m, i) => (
-          <p
-            key={i}
-            className={
-              m.role === "user"
-                ? "text-right text-blue-800"
-                : "text-left text-gray-800"
-            }
-          >
-            <span className="mr-1 font-bold">
-              {m.role === "user" ? "You:" : "AI:"}
-            </span>
-            {m.content}
-          </p>
-        ))}
-        {sending && <p className="italic text-gray-500">…thinking</p>}
-      </div>
-
-      {/* ERROR */}
-      {error && (
-        <p className="rounded bg-red-100 p-2 text-sm text-red-700">
-          {error.message}
-        </p>
-      )}
-
-      {/* MIC BUTTON */}
-      <div className="flex justify-center">
-        <button
-          /* ONE pointer stream = no duplicate on hybrid devices */
-          onPointerDown={start}
-          onPointerUp={stop}
-          onPointerCancel={stop}
-          className={`h-16 w-16 rounded-full bg-red-600 text-white transition-all hover:scale-105 active:scale-95 ${
-            isRecording ? "animate-pulse" : ""
-          }`}
-          aria-label="Hold to speak"
-        >
-          {isRecording ? (
-            <span className="text-xl">●</span>
-          ) : (
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-              className="h-8 w-8"
-            >
-              <path d="M12 1a3 3 0 0 0-3 3v6a3 3 0 1 0 6 0V4a3 3 0 0 0-3-3Zm7 9a1 1 0 1 0-2 0 5 5 0 0 1-10 0 1 1 0 1 0-2 0 7 7 0 0 0 6 6.92V20H8a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2h-3v-3.08A7 7 0 0 0 19 10Z" />
-            </svg>
-          )}
-        </button>
-      </div>
-
-      <p className="text-center text-xs text-gray-500">
-        Press &amp; hold the mic – release to send.
-      </p>
-    </div>
-  );
-}
-</file>
-
 <file path="frontend/app/components/VoiceChat.tsx">
 import VoiceChat from "../components/VoiceChat";
 
@@ -992,11 +919,18 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 </file>
 
-<file path="pipeline_agents/__init__.py">
-# agents/__init__.py
+<file path="pipeline_agents/openai_client.py">
+# pipeline_agents/openai_client.py
 """
-Local helpers that wrap the OpenAI Agents SDK.
+Shared AsyncOpenAI client (singleton).
+
+Import `client` wherever you need OpenAI calls to avoid the 150-250 ms
+cold-init penalty on every request.
 """
+
+from openai import AsyncOpenAI
+
+client = AsyncOpenAI()  # single, reusable connection pool
 </file>
 
 <file path="profiles/migrations/0001_initial.py">
@@ -1520,6 +1454,105 @@ from django.core.wsgi import get_wsgi_application
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "backend.settings")
 
 application = get_wsgi_application()
+</file>
+
+<file path="frontend/app/components/VoiceAgentChat.tsx">
+// frontend/app/components/VoiceAgentChat.tsx
+"use client";
+
+import { useVoiceAgent } from "@/hooks/useVoiceAgent";
+import { useEffect, useMemo, useRef } from "react";
+
+export default function VoiceAgentChat() {
+  const { isRecording, start, stop, history, sending, error } = useVoiceAgent();
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+
+  /* auto-scroll to newest line */
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [history.length, sending]);
+
+  /* preserve order (history already oldest→newest) */
+  const ordered = useMemo(() => [...history], [history]);
+
+  /* ---------- render ---------- */
+  return (
+    <div className="mx-auto max-w-xl space-y-4">
+      {/* CHAT HISTORY */}
+      <div className="h-96 overflow-y-auto rounded border p-4 text-sm leading-relaxed">
+        {ordered.length ? (
+          ordered.map((m, i) => {
+            const isLastAssistant =
+              i === ordered.length - 1 && m.role === "assistant";
+            return (
+              <p
+                key={i}
+                className={
+                  m.role === "user"
+                    ? "text-right text-blue-800"
+                    : "text-left text-gray-800"
+                }
+              >
+                <span className="mr-1 font-bold">
+                  {m.role === "user" ? "You:" : "AI:"}
+                </span>
+                {m.content}
+                {isLastAssistant && sending && (
+                  <span className="animate-pulse"> █</span>
+                )}
+              </p>
+            );
+          })
+        ) : (
+          <p className="text-center text-muted-foreground">
+            No messages yet – press &amp; hold the mic to start.
+          </p>
+        )}
+        {sending && !ordered.length && (
+          <p className="italic text-gray-500">…thinking</p>
+        )}
+        <div ref={bottomRef} />
+      </div>
+
+      {/* ERROR */}
+      {error && (
+        <p className="rounded bg-red-100 p-2 text-sm text-red-700">
+          {error.message}
+        </p>
+      )}
+
+      {/* MIC BUTTON */}
+      <div className="flex justify-center">
+        <button
+          onPointerDown={start}
+          onPointerUp={stop}
+          onPointerCancel={stop}
+          className={`h-16 w-16 rounded-full bg-red-600 text-white transition-all hover:scale-105 active:scale-95 ${
+            isRecording ? "animate-pulse" : ""
+          }`}
+          aria-label="Hold to speak"
+        >
+          {isRecording ? (
+            <span className="text-xl">●</span>
+          ) : (
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              className="h-8 w-8"
+            >
+              <path d="M12 1a3 3 0 0 0-3 3v6a3 3 0 1 0 6 0V4a3 3 0 0 0-3-3Zm7 9a1 1 0 1 0-2 0 5 5 0 0 1-10 0 1 1 0 1 0-2 0 7 7 0 0 0 6 6.92V20H8a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2h-3v-3.08A7 7 0 0 0 19 10Z" />
+            </svg>
+          )}
+        </button>
+      </div>
+
+      <p className="text-center text-xs text-gray-500">
+        Press &amp; hold the mic – release to send.
+      </p>
+    </div>
+  );
+}
 </file>
 
 <file path="frontend/app/dashboard/page.tsx">
@@ -2053,126 +2086,6 @@ export function useVoice() {
 }
 </file>
 
-<file path="frontend/src/hooks/useVoiceAgent.ts">
-// frontend/src/hooks/useVoiceAgent.ts
-"use client";
-
-import { useEffect, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useVoice } from "@/hooks/useVoice";
-import { fetchWithAuth } from "@/lib/fetchWithAuth";
-
-/* ---------- types ---------- */
-export type Msg = { role: "user" | "assistant"; content: string };
-
-/* ---------- helpers ---------- */
-async function getHistory(): Promise<Msg[]> {
-  const res = await fetchWithAuth("/api/agent/profile-builder/history");
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
-}
-
-type AgentResponse = {
-  reply: string;
-  audio_base64?: string;
-  profile_updated_at?: string;
-};
-
-async function sendToAgent(body: { message: string }): Promise<AgentResponse> {
-  const res = await fetchWithAuth("/api/agent/profile-builder", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
-}
-
-/* ---------- main hook ---------- */
-export function useVoiceAgent() {
-  const qc = useQueryClient();
-
-  /* -------- server-persisted history -------- */
-  const { data: serverHistory = [] } = useQuery({
-    queryKey: ["chat", "profile-builder"],
-    queryFn: getHistory,
-    staleTime: Infinity,
-  });
-
-  /* -------- local history state -------- */
-  const [history, setHistory] = useState<Msg[]>(serverHistory);
-
-  // keep local copy in sync — run only when the length changes
-  useEffect(() => {
-    setHistory(serverHistory);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverHistory.length]);
-
-  /* -------- voice (record / stt / tts) -------- */
-  const {
-    isRecording,
-    start,
-    stop,
-    transcript,
-    sttLoading,
-    sttError,
-  } = useVoice();
-
-  /* -------- agent mutation -------- */
-  const mutation = useMutation({
-    mutationFn: (msg: string) => sendToAgent({ message: msg }),
-    onSuccess: ({ reply, audio_base64, profile_updated_at }, userMsg) => {
-      // update history (local + react-query cache)
-      setHistory((h) => [
-        ...h,
-        { role: "user", content: userMsg },
-        { role: "assistant", content: reply },
-      ]);
-      qc.setQueryData(["chat", "profile-builder"], (old: Msg[] = []) => [
-        ...old,
-        { role: "user", content: userMsg },
-        { role: "assistant", content: reply },
-      ]);
-
-      // optional TTS playback
-      if (audio_base64) {
-        const audio = new Audio(`data:audio/mp3;base64,${audio_base64}`);
-        audio.play().catch(() => {/* autoplay might be blocked */});
-      }
-
-      // profile cache invalidation
-      if (profile_updated_at) {
-        qc.invalidateQueries({ queryKey: ["profile", "me"] });
-      }
-    },
-  });
-
-  /* -------- de-dup + single-flight guard -------- */
-  const lastSentRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!transcript || sttLoading) return;
-    if (transcript === lastSentRef.current) return;   // ignore duplicate
-    if (mutation.isPending) return;                  // wait for current send
-
-    lastSentRef.current = transcript;
-    mutation.mutate(transcript);
-  }, [transcript, sttLoading, mutation]);
-
-  /* -------- exported API -------- */
-  return {
-    /* voice controls */
-    isRecording,
-    start,
-    stop,
-    /* chat state */
-    history,
-    sending: mutation.isPending || sttLoading,
-    error: sttError || (mutation.error as Error | null),
-  };
-}
-</file>
-
 <file path="internships/admin.py">
 # Register your models here.
 </file>
@@ -2196,6 +2109,35 @@ class InternshipsConfig(AppConfig):
 
 <file path="internships/views.py">
 # Create your views here.
+</file>
+
+<file path="pipeline_agents/__init__.py">
+# pipeline_agents/__init__.py
+"""
+Package initialization for Pipeline Agents.
+
+• Adds a compatibility shim so every FunctionTool created by the
+  OpenAI Agents SDK exposes **.openai_schema** (SDK ≥ 0.0.16 requirement)
+  even if we’re on an older version that only defines **.schema**.
+
+The patch runs *once* when the pipeline_agents package is imported, before
+any tools are declared.
+"""
+
+from agents import function_tool as _function_tool
+
+# ────────────────── compatibility shim ──────────────────
+# Create a dummy FunctionTool instance to reach its class, then
+# add a property to that class if it's missing.
+_dummy_tool = _function_tool(lambda: None)  # returns FunctionTool instance
+ToolClass = _dummy_tool.__class__
+
+if not hasattr(ToolClass, "openai_schema") and hasattr(ToolClass, "schema"):
+    # Map .openai_schema -> .schema (read-only proxy)
+    ToolClass.openai_schema = property(lambda self: self.schema)  # type: ignore[attr-defined]
+
+del _dummy_tool, ToolClass  # clean-up namespace
+# ─────────────────────────────────────────────────────────
 </file>
 
 <file path="profiles/models.py">
@@ -2452,98 +2394,6 @@ class ProfileSerializer(serializers.ModelSerializer):
             self._sync_educations(instance, educations_data)
 
         return instance
-</file>
-
-<file path="voice/views.py">
-# voice/views.py
-from __future__ import annotations
-
-import base64
-import io
-from typing import Any
-
-from django.conf import settings
-from rest_framework import permissions, status
-from rest_framework.response import Response
-from rest_framework.views import APIView
-
-try:
-    # OpenAI Python SDK v1.x
-    from openai import OpenAI
-except ImportError:  # pragma: no cover
-    OpenAI = None  # type: ignore
-
-
-def _get_client() -> Any:  # returns OpenAI.Client
-    if OpenAI is None:
-        raise RuntimeError("openai package not installed")
-    return OpenAI(api_key=getattr(settings, "OPENAI_API_KEY", None))
-
-
-class SpeechToTextView(APIView):
-    """
-    POST /api/voice/stt/
-    Body: multipart/form-data 'audio'  OR  JSON { "audio_base64": "…" }
-    Returns: { "text": "…" }
-    """
-
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request, *args, **kwargs):
-        client = _get_client()
-
-        # ---- get audio bytes ----
-        if "audio" in request.FILES:
-            audio_bytes = request.FILES["audio"].read()
-        else:
-            audio_b64 = request.data.get("audio_base64")
-            if not audio_b64:
-                return Response(
-                    {"detail": "Provide 'audio' file or 'audio_base64'"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            audio_bytes = base64.b64decode(audio_b64)
-
-        # ---- wrap bytes with a filename so OpenAI detects .webm ----
-        bio = io.BytesIO(audio_bytes)
-        bio.name = "speech.webm"  # 👈 key fix
-
-        # ---- OpenAI transcription ----
-        transcript = client.audio.transcriptions.create(
-            model="whisper-1",
-            file=bio,
-        )
-        return Response({"text": transcript.text})
-
-
-class TextToSpeechView(APIView):
-    """
-    POST /api/voice/tts/
-    JSON: { "text": "...", "voice": "alloy" }
-    Returns: { "audio_base64": "..." }
-    """
-
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request, *args, **kwargs):
-        client = _get_client()
-
-        text = request.data.get("text")
-        if not text:
-            return Response(
-                {"detail": "Missing 'text' field"}, status=status.HTTP_400_BAD_REQUEST
-            )
-
-        voice = request.data.get("voice", "alloy")
-
-        audio_bytes = client.audio.speech.create(
-            model="tts-1",
-            voice=voice,
-            input=text,
-            response_format="mp3",  # 👈 new arg name
-        )
-        audio_b64 = base64.b64encode(audio_bytes).decode("ascii")
-        return Response({"audio_base64": audio_b64})
 </file>
 
 <file path=".gitignore">
@@ -3700,6 +3550,117 @@ urlpatterns = [
 ]
 </file>
 
+<file path="voice/views.py">
+# voice/views.py
+from __future__ import annotations
+
+import base64
+import io
+from typing import TYPE_CHECKING, Any, Optional
+
+from django.conf import settings
+from rest_framework import permissions, status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+# ------------------------------------------------------------------
+# Static-type–friendly alias for the OpenAI client
+# ------------------------------------------------------------------
+if TYPE_CHECKING:  # only active for mypy / pylance
+    from openai import OpenAI as _OpenAIType
+else:  # at runtime we don’t import OpenAI yet
+    _OpenAIType = Any  # noqa: N816  (capitalised alias)
+
+# ------------------------------------------------------------------
+# Singleton OpenAI client (lazily initialised, re-uses HTTP pool)
+# ------------------------------------------------------------------
+_CLIENT: Optional["_OpenAIType"] = None
+
+
+def _get_client() -> _OpenAIType:  # returns a fully-typed OpenAI client
+    global _CLIENT
+
+    if _CLIENT is None:
+        from openai import OpenAI  # local import avoids cost if never used
+
+        _CLIENT = OpenAI(api_key=getattr(settings, "OPENAI_API_KEY", None))
+
+    return _CLIENT
+
+
+# ------------------------------------------------------------------
+# Speech-to-Text
+# ------------------------------------------------------------------
+class SpeechToTextView(APIView):
+    """
+    POST /api/voice/stt/
+    Body   : multipart/form-data “audio”  OR  JSON { "audio_base64": "…" }
+    Return : { "text": "…" }
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        client = _get_client()
+
+        # ── load audio bytes ───────────────────────────────────────────
+        if "audio" in request.FILES:
+            audio_bytes = request.FILES["audio"].read()
+        else:
+            audio_b64 = request.data.get("audio_base64")
+            if not audio_b64:
+                return Response(
+                    {"detail": "Provide 'audio' file or 'audio_base64'"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            audio_bytes = base64.b64decode(audio_b64)
+
+        # add filename so OpenAI recognises .webm
+        bio = io.BytesIO(audio_bytes)
+        bio.name = "speech.webm"
+
+        # ── Whisper transcription ─────────────────────────────────────
+        transcript = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=bio,
+        )
+        return Response({"text": transcript.text})
+
+
+# ------------------------------------------------------------------
+# Text-to-Speech
+# ------------------------------------------------------------------
+class TextToSpeechView(APIView):
+    """
+    POST /api/voice/tts/
+    JSON   : { "text": "...", "voice": "alloy" }
+    Return : { "audio_base64": "..." }
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        client = _get_client()
+
+        text = request.data.get("text")
+        if not text:
+            return Response(
+                {"detail": "Missing 'text' field"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        voice = request.data.get("voice", "alloy")
+
+        audio_bytes = client.audio.speech.create(
+            model="tts-1",
+            voice=voice,
+            input=text,
+            response_format="mp3",
+        )
+        audio_b64 = base64.b64encode(audio_bytes).decode("ascii")
+        return Response({"audio_base64": audio_b64})
+</file>
+
 <file path="frontend/app/profile/page.tsx">
 "use client";
 
@@ -3863,6 +3824,203 @@ export default function ProfilePage() {
 }
 </file>
 
+<file path="frontend/src/hooks/useVoiceAgent.ts">
+// frontend/src/hooks/useVoiceAgent.ts
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useVoice } from "@/hooks/useVoice";
+import { fetchWithAuth } from "@/lib/fetchWithAuth";
+
+/* ---------- types ---------- */
+export type Msg = { role: "user" | "assistant"; content: string };
+
+type DonePayload = {
+  delta: "";
+  done: true;
+  audio_base64?: string;
+  profile_updated_at?: string;
+};
+
+/* ---------- helpers ---------- */
+async function getHistory(): Promise<Msg[]> {
+  const res = await fetchWithAuth("/api/agent/profile-builder/history");
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+/* ---------- helpers ---------- */
+async function streamAgent(
+  message: string,
+  onDelta: (token: string) => void
+): Promise<DonePayload> {
+  const res = await fetchWithAuth("/api/agent/profile-builder", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+  if (!res.ok || !res.body) throw new Error(await res.text());
+
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  let sawDelta = false;          // 👈 new flag
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (value) buf += dec.decode(value, { stream: true });
+
+    /* --- parse complete lines --- */
+    let idx;
+    while ((idx = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, idx).trim();
+      buf = buf.slice(idx + 1);
+      if (!line) continue;
+
+      const payload =
+        JSON.parse(line) as { delta: string; done: boolean } & Partial<DonePayload>;
+
+      if (!payload.done) {
+        sawDelta = true;
+        onDelta(payload.delta);
+      } else {
+        return payload as DonePayload;
+      }
+    }
+
+    if (done) break;
+  }
+
+  /* --- connection closed --- */
+  buf = buf.trim();
+  if (buf) {
+    const maybe = JSON.parse(buf) as Partial<DonePayload>;
+    if (maybe.done) return maybe as DonePayload;
+  }
+
+  if (sawDelta) {
+    // graceful fallback: treat EOF as done
+    return { delta: "", done: true };
+  }
+
+  throw new Error("Stream ended unexpectedly");
+}
+
+
+
+/* ---------- main hook ---------- */
+export function useVoiceAgent() {
+  const qc = useQueryClient();
+
+  /* -------- server-persisted history -------- */
+  const { data: serverHistory = [] } = useQuery({
+    queryKey: ["chat", "profile-builder"],
+    queryFn: getHistory,
+    staleTime: Infinity,
+  });
+
+  /* -------- reactive state -------- */
+  const [history, setHistory] = useState<Msg[]>(serverHistory);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  // Keep local history in sync whenever the query data object changes
+  useEffect(() => {
+    setHistory(serverHistory);
+  }, [serverHistory]); // ✅ include full object, ESLint-safe
+
+  /* -------- voice (record / stt) -------- */
+  const {
+    isRecording,
+    start,
+    stop,
+    transcript,
+    sttLoading,
+    sttError,
+  } = useVoice();
+
+  /* -------- streaming assistant buffer -------- */
+  const assistantBuf = useRef("");
+
+  /* -------- helper to send a message -------- */
+  const sendMessage = async (userMsg: string) => {
+    setSending(true);
+    setError(null);
+    assistantBuf.current = "";
+
+    // optimistic UI update
+    setHistory((h) => [
+      ...h,
+      { role: "user", content: userMsg },
+      { role: "assistant", content: "" },
+    ]);
+
+    const onDelta = (tok: string) => {
+      assistantBuf.current += tok;
+      setHistory((h) => {
+        const copy = [...h];
+        copy[copy.length - 1] = {
+          role: "assistant",
+          content: assistantBuf.current,
+        };
+        return copy;
+      });
+    };
+
+    try {
+      const done = await streamAgent(userMsg, onDelta);
+
+      // optional audio
+      if (done.audio_base64) {
+        const audio = new Audio(`data:audio/mp3;base64,${done.audio_base64}`);
+        audio.play().catch(() => {});
+      }
+
+      // invalidate profile cache if updated
+      if (done.profile_updated_at) {
+        qc.invalidateQueries({ queryKey: ["profile", "me"] });
+      }
+
+      // persist to react-query cache
+      qc.setQueryData(["chat", "profile-builder"], (old: Msg[] = []) => [
+        ...old,
+        { role: "user", content: userMsg },
+        { role: "assistant", content: assistantBuf.current },
+      ]);
+    } catch (err) {
+      setError(err as Error);
+      // rollback placeholder assistant line
+      setHistory((h) => h.slice(0, -1));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  /* -------- auto-send when transcript ready -------- */
+  const lastSentRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!transcript || sttLoading) return;
+    if (transcript === lastSentRef.current) return;
+    if (sending) return;
+
+    lastSentRef.current = transcript;
+    sendMessage(transcript);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transcript, sttLoading]);
+
+  /* -------- exported API -------- */
+  return {
+    isRecording,
+    start,
+    stop,
+    history,
+    sending: sending || sttLoading,
+    error: error || sttError,
+  };
+}
+</file>
+
 <file path="backend/urls.py">
 # backend/urls.py
 """
@@ -3973,9 +4131,9 @@ django-cors-headers==4.3.1
 """
 Profile-Builder agent (incremental save + live console prints).
 
-• Prints RAW / SAVED / ERROR for every tool call so you can watch the data
-  flow in the run-server terminal.
-• Executes all Django ORM work inside `sync_to_async` so no async-context errors.
+• Prints RAW / SAVED / ERROR for every tool call so you can watch changes
+  live in the dev-server console.
+• Executes all Django ORM work inside `sync_to_async`, so no async-context errors.
 """
 
 from __future__ import annotations
@@ -3986,13 +4144,27 @@ from agents import Agent, function_tool, set_default_openai_client
 from asgiref.sync import sync_to_async
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from openai import AsyncOpenAI, OpenAI
 
-# ────────────────────────────────────────────────────────────────
-# Pieces reused from profiles.tools
-# ────────────────────────────────────────────────────────────────
+# ── pieces reused from profiles.tools --------------------------
 import profiles.tools as _p
+
+# ── shared singleton OpenAI async client ───────────────────────
+from pipeline_agents.openai_client import client as async_client
 from profiles.models import Skill
+
+
+# ────────────────── NEW SHIM ──────────────────
+def _equip_openai_schema(tool):
+    """
+    SDK-compat shim: v≥0.0.16 expects tool.openai_schema.
+    Older decorator versions only have .schema.
+    """
+    if not hasattr(tool, "openai_schema") and hasattr(tool, "schema"):
+        tool.openai_schema = tool.schema  # type: ignore[attr-defined]
+    return tool
+
+
+# ───────────────────────────────────────────────
 
 User = get_user_model()
 ProfilePayload = _p.ProfilePayload
@@ -4000,24 +4172,24 @@ ProfileSerializer = _p.ProfileSerializer
 ProfileModel = _p.Profile
 
 
-# ────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────
 # Sync helper that writes to the DB (runs in a worker thread)
-# ────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────
 def _save_profile_sync(user_email: str, data: dict) -> str:
     """
     Persist profile fields.  Skills are handled after the serializer so we
     don’t hit the Skill.name UNIQUE constraint on duplicate calls.
     """
-    # ---- pull nested ------------------------------------------------------
+    # ---- pull nested -----------------------------------------------------
     availability = data.pop("availability", None)
-    skills = data.pop("skills", None)  # <-- keep out of serializer
+    skills = data.pop("skills", None)  # keep out of serializer
     educations = data.pop("educations", None)
 
-    # ---- ORM objects ------------------------------------------------------
+    # ---- ORM objects -----------------------------------------------------
     user = User.objects.get(email=user_email)
     profile, _ = ProfileModel.objects.get_or_create(user=user)
 
-    # ---- main serializer (everything *except* skills) ---------------------
+    # ---- main serializer (everything *except* skills) --------------------
     serializer_data = data.copy()
     if availability is not None:
         serializer_data["availability"] = availability
@@ -4032,7 +4204,7 @@ def _save_profile_sync(user_email: str, data: dict) -> str:
             ser.is_valid(raise_exception=True)
             ser.save()
 
-    # ---- skills (safe helper – ignores duplicates) ------------------------
+    # ---- skills (safe helper – ignores duplicates) -----------------------
     if skills is not None:
         names = [s.strip() for s in skills]
         skill_objs = [
@@ -4040,7 +4212,7 @@ def _save_profile_sync(user_email: str, data: dict) -> str:
         ]
         profile.skills.set(skill_objs)
 
-    # ---- return JSON for console print ------------------------------------
+    # ---- return JSON for console print -----------------------------------
     saved_snapshot = {
         **serializer_data,
         **({"skills": skills} if skills is not None else {}),
@@ -4048,9 +4220,9 @@ def _save_profile_sync(user_email: str, data: dict) -> str:
     return json.dumps(saved_snapshot, default=str)
 
 
-# ────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────
 # Per-user tool (public name **set_profile_fields_v1**)
-# ────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────
 def _profile_fields_tool_for(user_email: str):
     """Expose set_profile_fields_v1 with RAW / SAVED / ERROR prints."""
 
@@ -4078,12 +4250,13 @@ def _profile_fields_tool_for(user_email: str):
             print(f"[AGENT TOOL - ERROR ] {user_email}: {exc}")
             raise
 
-    return set_profile_fields_v1
+    # add missing .openai_schema when needed
+    return _equip_openai_schema(set_profile_fields_v1)
 
 
-# ────────────────────────────────────────────────────────────────
-# System instructions (with JSON examples & natural flow)
-# ────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────
+# System instructions
+# ───────────────────────────────────────────────────────────────
 _SYSTEM_INSTRUCTIONS = """
 You are **Pipeline Profile Builder**, an upbeat career-coach assistant.  
 Assume the student came here specifically to build their internship profile,
@@ -4126,32 +4299,22 @@ so skip generic “How can I help?” greetings and dive right in.
    *“Your Pipeline Agent here. I’m doing great—thanks for asking! I’m excited to help you navigate your internship journey. To start, I'll need to learn a bit about you. Can you tell me a bit about your goals or the field you’re interested in?”*
 
 2. Always move on to this flow for your second and third questions!  
-  second question: “When could you start?” Third question:"How many hours can you dedicate per week, and is this remote or onsite?."
+   second question: “When could you start?” Third question: “How many hours can you dedicate per week, and is this remote or onsite?.”
 
 3. **One topic at a time** – Ask **no more than one clear question per reply**
    (two max if they’re tightly linked).  
-   *Bad:* “When can you start, how many hours, remote or onsite?”  
-
-   *Good:* “When could you start?” → wait → How many hours, remote or onsite?."
 
 4. **Implicit profile updates** – When you’re ready to store data
    (headline, bio, etc.), just say a variation of  
    **“Great, I’ve added that to your profile for you.”**  
-   *Never print the headline, bio, or any profile snippet back to the user.*  
    Encourage them to “check it out in your Profile tab and let me know
    if you’d like tweaks.”
 
-5. **No early exposition** – Don’t talk about “building your profile” until it is
-   relevant. Focus first on their goals, interests, and next steps in finding an
-   internship.
+5. **Conversational tone** – Sound like a helpful mentor, not a form. Keep replies short.
 
-6. **Conversational tone** – Sound like a helpful mentor, not a form. Keep replies
-   short, friendly, and action-oriented.
+6. After each successful tool call → confirm with the short message above and continue.
 
-7. After each successful tool call → confirm with the short message above and
-   continue.
-
-8. When all key sections are stored →  
+7. When all key sections are stored →  
    **“Great, your profile is fully updated! Check it out and let me know if you want any updates.”**  
    Then end the session.
 
@@ -4159,160 +4322,21 @@ so skip generic “How can I help?” greetings and dive right in.
 """.strip()
 
 
-# ────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────
 # Factory
-# ────────────────────────────────────────────────────────────────
-def build_profile_builder_agent(
-    client: OpenAI | AsyncOpenAI,
-    *,
-    user_email: str,
-) -> Agent:
-    set_default_openai_client(client)
+# ───────────────────────────────────────────────────────────────
+def build_profile_builder_agent(*, user_email: str) -> Agent:
+    """
+    Return a ready-to-run Agent that reuses the shared AsyncOpenAI client.
+    """
+    set_default_openai_client(async_client)
+
     return Agent(
         name="Profile Builder",
         instructions=_SYSTEM_INSTRUCTIONS,
         model="gpt-4o-mini",
         tools=[_profile_fields_tool_for(user_email)],
     )
-</file>
-
-<file path="profiles/agent_views.py">
-from __future__ import annotations
-
-import asyncio
-import base64
-from typing import List, Optional
-
-from agents import Runner
-from django.core.cache import cache
-from openai import AsyncOpenAI
-from rest_framework import permissions, status
-from rest_framework.response import Response
-from rest_framework.views import APIView
-
-from pipeline_agents.profile_builder import build_profile_builder_agent
-from voice.views import _get_client  # reuse voice TTS helper
-
-from .models import AgentMessage
-from .serializers import AgentMessageSerializer
-
-
-# ────────────────────────────────────────────────────────────────
-# helpers
-# ────────────────────────────────────────────────────────────────
-def build_prompt(history: List[AgentMessage], latest_msg: str) -> str:
-    lines = [
-        f"{'User' if m.role == AgentMessage.Role.USER else 'Assistant'}: {m.content}"
-        for m in history
-    ]
-    lines.append(f"User: {latest_msg}")
-    return "\n".join(lines)
-
-
-# ────────────────────────────────────────────────────────────────
-# main chat view
-# ────────────────────────────────────────────────────────────────
-class ProfileBuilderAgentView(APIView):
-    """
-    POST /api/agent/profile-builder/
-    Body: { "message": "hello" }
-    """
-
-    permission_classes = [permissions.IsAuthenticated]
-
-    LOCK_TIMEOUT = 60  # seconds a single generation may run
-    REPLY_CACHE_SEC = 30  # seconds we reuse last reply for identical input
-
-    def post(self, request, *args, **kwargs):
-        latest = request.data.get("message", "").strip()
-        if not latest:
-            return Response(
-                {"detail": "Missing 'message' field"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        user = request.user
-        lock_key = f"profile-builder-lock-{user.id}"
-        reply_key = f"profile-builder-lastreply-{user.id}"
-
-        # 1️⃣  Fast-path: if we *already* answered this exact input recently,
-        #     return the cached response immediately — no lock, no DB write.
-        cached = cache.get(reply_key)
-        if cached and cached.get("in_msg") == latest:
-            return Response(cached["body"])
-
-        # 2️⃣  Acquire a lock so only ONE concurrent request runs the expensive
-        #     generation + TTS for this user.
-        got_lock = cache.add(lock_key, True, timeout=self.LOCK_TIMEOUT)
-        if not got_lock:
-            return Response(
-                {"detail": "Agent is already generating a reply, please wait."},
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
-
-        # 3️⃣  We are the primary request holder — make sure we release the lock.
-        try:
-            # Save USER message only once we’re sure we’re the single generator
-            AgentMessage.objects.create(
-                user=user, role=AgentMessage.Role.USER, content=latest
-            )
-
-            # Build prompt from full history
-            history = list(
-                AgentMessage.objects.filter(user=user).order_by("created_at")
-            )
-            prompt = build_prompt(history, latest_msg=latest)
-
-            # Run agent (blocking for simplicity)
-            agent = build_profile_builder_agent(AsyncOpenAI(), user_email=user.email)
-            reply = asyncio.run(Runner.run(agent, input=prompt)).final_output
-
-            # Text-to-speech (best-effort; OK to skip on failure)
-            audio_base64: Optional[str] = None
-            try:
-                tts_client = _get_client()
-                speech = tts_client.audio.speech.create(
-                    model="tts-1",
-                    voice="alloy",
-                    input=reply,
-                    response_format="mp3",
-                )
-                audio_base64 = base64.b64encode(speech.content).decode("ascii")
-            except Exception:
-                import logging
-
-                logging.exception("TTS failed — continuing without audio")
-
-            # Save ASSISTANT reply
-            AgentMessage.objects.create(
-                user=user, role=AgentMessage.Role.ASSISTANT, content=reply
-            )
-
-            body: dict = {"reply": reply}
-            if audio_base64:
-                body["audio_base64"] = audio_base64
-            if "profile_updated" in reply:
-                body["profile_updated_at"] = user.profile.updated_at.isoformat()
-
-            # Cache the pair (input ➜ response) so any duplicates within the next
-            # 30 s hit the fast-path at the top.
-            cache.set(reply_key, {"in_msg": latest, "body": body}, self.REPLY_CACHE_SEC)
-
-        finally:
-            cache.delete(lock_key)
-
-        return Response(body)
-
-
-# ────────────────────────────────────────────────────────────────
-# history endpoint
-# ────────────────────────────────────────────────────────────────
-class AgentHistoryView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get(self, request, *args, **kwargs):
-        qs = AgentMessage.objects.filter(user=request.user).order_by("created_at")
-        return Response(AgentMessageSerializer(qs, many=True).data)
 </file>
 
 <file path="backend/settings.py">
@@ -4515,6 +4539,296 @@ if DEBUG:
             },
         },
     }
+</file>
+
+<file path="profiles/agent_views.py">
+# profiles/agent_views.py
+from __future__ import annotations
+
+import asyncio
+import base64
+import inspect
+import json
+import queue
+import threading
+from typing import Dict, Generator, List, Optional
+
+from django.core.cache import cache
+from django.http import StreamingHttpResponse
+from rest_framework import permissions, status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+# ── singleton AsyncOpenAI client ────────────────────────────────
+from pipeline_agents.openai_client import client
+from pipeline_agents.profile_builder import build_profile_builder_agent
+from voice.views import _get_client
+
+from .models import AgentMessage
+from .serializers import AgentMessageSerializer
+
+
+# ───────────────────────── helpers ──────────────────────────────
+def make_prompt(hist: List[AgentMessage], latest: str) -> str:
+    return "\n".join(
+        [
+            *(
+                f"{'User' if m.role == 'user' else 'Assistant'}: {m.content}"
+                for m in hist
+            ),
+            f"User: {latest}",
+        ]
+    )
+
+
+def _maybe_call(attr):
+    if callable(attr):
+        try:
+            if len(inspect.signature(attr).parameters) == 0:
+                return attr()
+        except Exception:  # pragma: no cover
+            pass
+    return attr
+
+
+def extract_tool_schema(tool) -> Dict:
+    """Return an OpenAI-compatible schema dict for every FunctionTool fork."""
+    for name in (
+        "openai_schema",
+        "schema",
+        "_schema",
+        "function_schema",
+        "to_openai_schema",
+        "to_openai",
+        "json_schema",
+        "as_openai_schema",
+    ):
+        if hasattr(tool, name):
+            obj = _maybe_call(getattr(tool, name))
+            if isinstance(obj, dict):
+                return obj
+
+    if hasattr(tool, "params_json_schema"):  # current Agents SDK
+        return {
+            "type": "function",
+            "function": {
+                "name": getattr(tool, "name", "unnamed_tool"),
+                "description": getattr(tool, "description", "") or "",
+                "parameters": tool.params_json_schema,
+            },
+        }
+
+    if hasattr(tool, "model_dump"):  # pydantic model fallback
+        return tool.model_dump()
+
+    raise AttributeError("Unable to locate schema on FunctionTool")
+
+
+async def _invoke_tool(tool, raw_args: Dict) -> str:
+    """
+    Call FunctionTool regardless of signature variant and always supply the
+    payload in the shape it expects.
+
+    Supports:
+      • (ctx, input)          – classic two-positional
+      • (input)               – single positional
+      • keyword-only (payload_json=…) or (**kwargs)
+    """
+    fn = tool.on_invoke_tool
+    sig = inspect.signature(fn)
+    pos_params = [
+        p
+        for p in sig.parameters.values()
+        if p.kind
+        in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        )
+    ]
+
+    # Does the tool want a single *string* payload?
+    wants_ctx = len(pos_params) == 2 and pos_params[0].name in ("ctx", "context")
+    wants_input = (
+        len(pos_params) == 1 and pos_params[0].name in ("input", "payload_json")
+    ) or (len(pos_params) == 2 and pos_params[1].name in ("input", "payload_json"))
+
+    if wants_input:
+        payload_str = (
+            raw_args
+            if isinstance(raw_args, str)
+            else json.dumps(raw_args, separators=(",", ":"))
+        )
+        if wants_ctx:
+            return await fn(None, payload_str)
+        return await fn(payload_str)
+
+    # Keyword-style tools – ensure they still get `payload_json` as a string
+    if "payload_json" in sig.parameters and "payload_json" not in raw_args:
+        raw_args = {"payload_json": json.dumps(raw_args, separators=(",", ":"))}
+
+    return await fn(**raw_args)
+
+
+# ───────────────────────── main view ────────────────────────────
+class ProfileBuilderAgentView(APIView):
+    """
+    POST /api/agent/profile-builder/
+      Body : {"message": "..."}
+      Stream (ND-JSON):
+        {"delta":"Hi","done":false}
+        …
+        {"delta":"","done":true,"audio_base64":"…"}
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+    LOCK_TIMEOUT = 60
+    CONTENT_TYPE = "application/x-ndjson"
+
+    def post(self, request, *args, **kwargs):
+        latest = (request.data.get("message") or "").strip()
+        if not latest:
+            return Response(
+                {"detail": "Missing 'message' field"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = request.user
+        lock_key = f"profile-builder-lock-{user.id}"
+
+        if not cache.add(lock_key, True, self.LOCK_TIMEOUT):
+            return Response(
+                {"detail": "Agent is already generating a reply, please wait."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        AgentMessage.objects.create(user=user, role="user", content=latest)
+
+        history = list(AgentMessage.objects.filter(user=user).order_by("created_at"))
+        prompt = make_prompt(history, latest)
+        meta = build_profile_builder_agent(user_email=user.email)
+
+        system_msg = {"role": "system", "content": meta.instructions}
+        user_msg = {"role": "user", "content": prompt}
+        tool_schemas = [extract_tool_schema(t) for t in meta.tools]
+        tool_lookup = {t.name: t for t in meta.tools}
+
+        q: "queue.Queue[str | dict]" = queue.Queue()
+
+        # ── background worker ───────────────────────────────────────────
+        def worker() -> None:
+            async def _run() -> None:
+                try:
+                    # 1️⃣  first call – let model decide if it needs a tool
+                    first = await client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[system_msg, user_msg],
+                        tools=tool_schemas,
+                        stream=False,
+                    )
+                    msgs: List[Dict] = [system_msg, user_msg]
+                    choice0 = first.choices[0].message
+
+                    if getattr(choice0, "tool_calls", None):
+                        # ── run each tool synchronously ─────────────────
+                        for tc in choice0.tool_calls:
+                            fn_name = tc.function.name
+                            arg_json = tc.function.arguments or "{}"
+                            kwargs = json.loads(arg_json)
+
+                            result = await _invoke_tool(tool_lookup[fn_name], kwargs)
+
+                            msgs.append(
+                                {  # assistant tool-call wrapper
+                                    "role": "assistant",
+                                    "tool_calls": [tc.model_dump()],
+                                    "content": None,
+                                }
+                            )
+                            msgs.append(
+                                {  # tool result message
+                                    "role": "tool",
+                                    "tool_call_id": tc.id,
+                                    "content": result,
+                                }
+                            )
+                    else:
+                        if choice0.content:  # model already answered
+                            q.put(choice0.content)
+
+                    # 2️⃣  final assistant stream ───────────────────────
+                    stream = await client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=msgs,
+                        stream=True,
+                    )
+                    full: List[str] = []
+                    async for chunk in stream:
+                        tok = chunk.choices[0].delta.content or ""
+                        if tok:
+                            full.append(tok)
+                            q.put(tok)
+
+                    q.put({"__done__": True, "reply": "".join(full)})
+
+                except Exception as exc:
+                    q.put({"__error__": str(exc)})
+                finally:
+                    cache.delete(lock_key)
+
+            asyncio.run(_run())
+
+        threading.Thread(target=worker, daemon=True).start()
+
+        # ── streaming HTTP response ───────────────────────────────────
+        def event_stream() -> Generator[bytes, None, None]:
+            while True:
+                item = q.get()
+                if isinstance(item, str):
+                    yield json.dumps({"delta": item, "done": False}).encode() + b"\n"
+                elif "__error__" in item:
+                    yield json.dumps({"error": item["__error__"]}).encode() + b"\n"
+                    break
+                else:  # done sentinel
+                    reply: str = item["reply"]
+
+                    # optional TTS
+                    audio_b64: Optional[str] = None
+                    try:
+                        speech = _get_client().audio.speech.create(
+                            model="tts-1",
+                            voice="alloy",
+                            input=reply,
+                            response_format="mp3",
+                        )
+                        audio_b64 = base64.b64encode(speech.content).decode()
+                    except Exception:
+                        pass
+
+                    AgentMessage.objects.create(
+                        user=user, role="assistant", content=reply
+                    )
+
+                    payload = {"delta": "", "done": True}
+                    if audio_b64:
+                        payload["audio_base64"] = audio_b64
+                    if "profile_updated" in reply:
+                        payload["profile_updated_at"] = (
+                            user.profile.updated_at.isoformat()
+                        )
+
+                    yield json.dumps(payload).encode() + b"\n"
+                    break
+
+        return StreamingHttpResponse(event_stream(), content_type=self.CONTENT_TYPE)
+
+
+# ───────────────────────── history endpoint ─────────────────────
+class AgentHistoryView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        qs = AgentMessage.objects.filter(user=request.user).order_by("created_at")
+        return Response(AgentMessageSerializer(qs, many=True).data)
 </file>
 
 </files>

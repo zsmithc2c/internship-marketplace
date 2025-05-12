@@ -1,15 +1,13 @@
+// frontend/src/hooks/useVoice.ts
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchWithAuth } from "@/lib/fetchWithAuth";   // ⬅️ change
+import { fetchWithAuth } from "@/lib/fetchWithAuth";
 
-/* ------------------------------------------------------------ */
-/*                          helpers                             */
-/* ------------------------------------------------------------ */
+/* ─────────────────────────── REST helpers ─────────────────────────── */
 
 async function sttRequest(audioBlob: Blob): Promise<string> {
-  /* ---- multipart/form-data ------------------------------------------- */
   const form = new FormData();
   form.append("audio", audioBlob, "speech.webm");
 
@@ -25,7 +23,7 @@ async function sttRequest(audioBlob: Blob): Promise<string> {
 async function ttsRequest(text: string, voice = "alloy"): Promise<string> {
   const res = await fetchWithAuth("/api/voice/tts/", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },  // ⬅️ ensure JSON header
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text, voice }),
   });
   if (!res.ok) throw new Error(await res.text());
@@ -33,74 +31,116 @@ async function ttsRequest(text: string, voice = "alloy"): Promise<string> {
   return `data:audio/mp3;base64,${audio_base64}`;
 }
 
-/* ------------------------------------------------------------ */
-/*                         main hook                            */
-/* ------------------------------------------------------------ */
+/* ─────────────────── sentence-speaker shared queue ─────────────────── */
+
+function useSentenceQueue() {
+  const queue = useRef<HTMLAudioElement[]>([]);
+  const playing = useRef(false);
+
+  const playNext = () => {
+    if (playing.current || !queue.current.length) return;
+    playing.current = true;
+    const next = queue.current.shift()!;
+    next
+      .play()
+      .catch(() => {
+        /* autoplay blocked – ignore */
+      })
+      .finally(() => {
+        playing.current = false;
+        playNext();
+      });
+  };
+
+  /**
+   * Fetch TTS for a sentence, enqueue it, and start playback.
+   * Resolves when this particular sentence finishes.
+   */
+  async function speakSentence(text: string): Promise<void> {
+    if (!text.trim()) return;
+
+    const src = await ttsRequest(text);
+    return new Promise<void>((resolve, reject) => {
+      const audio = new Audio(src);
+      audio.addEventListener("ended", () => resolve(), { once: true });
+      audio.addEventListener("error", () => reject(new Error("audio error")), {
+        once: true,
+      });
+      queue.current.push(audio);
+      playNext();
+    });
+  }
+
+  return speakSentence;
+}
+
+/* ───────────────────────────── main hook ───────────────────────────── */
 
 export function useVoice() {
+  /* ---------- recording ---------- */
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const chunks = useRef<BlobPart[]>([]);
 
-  /* ---------- STT mutation ---------- */
-  const stt = useMutation({ mutationFn: sttRequest });
-
-  /* ---------- TTS mutation ---------- */
-  const tts = useMutation({
-    mutationFn: ttsRequest,
-    onSuccess: (src) => {
-      const audio = new Audio(src);
-      audio.play().catch(() => {
-        /* autoplay blocked */
-      });
-    },
+  /* ---------- STT ---------- */
+  const { mutate: sttMutate, data, isPending, error } = useMutation({
+    mutationFn: sttRequest,
   });
 
   /* ---------- start recording ---------- */
-  const start = useCallback(async () => {
-    if (isRecording) return;
-    chunks.current = [];
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const rec = new MediaRecorder(stream);
-    rec.ondataavailable = (e) => chunks.current.push(e.data);
-    rec.onstop = () => {
-      const blob = new Blob(chunks.current, { type: "audio/webm" });
-      stt.mutate(blob); // trigger transcription
-      stream.getTracks().forEach((t) => t.stop());
-    };
-    rec.start();
-    mediaRecorder.current = rec;
-    setIsRecording(true);
-  }, [isRecording, stt]);
+  const start = useCallback(
+    async () => {
+      if (mediaRecorder.current?.state === "recording") return;
+
+      chunks.current = [];
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const rec = new MediaRecorder(stream);
+
+      rec.ondataavailable = (e) => chunks.current.push(e.data);
+      rec.onstop = () => {
+        const blob = new Blob(chunks.current, { type: "audio/webm" });
+        sttMutate(blob);
+        stream.getTracks().forEach((t) => t.stop());
+        setIsRecording(false); // ensure UI resets even if stop() wasn’t called
+      };
+
+      rec.start();
+      mediaRecorder.current = rec;
+      setIsRecording(true);
+    },
+    [sttMutate], // eslint-react/exhaustive-deps satisfied
+  );
 
   /* ---------- stop recording ---------- */
   const stop = useCallback(() => {
-    if (!isRecording || !mediaRecorder.current) return;
+    if (mediaRecorder.current?.state !== "recording") return;
     mediaRecorder.current.stop();
-    setIsRecording(false);
-  }, [isRecording]);
+    // isRecording flips in rec.onstop to avoid double-toggle
+  }, []);
 
-  /* cleanup on unmount */
+  /* --- cleanup on unmount --- */
   useEffect(() => {
     return () => {
-      if (mediaRecorder.current && mediaRecorder.current.state === "recording") {
+      if (mediaRecorder.current?.state === "recording") {
         mediaRecorder.current.stop();
       }
     };
   }, []);
 
-  /* ---------- return API ---------- */
+  /* ---------- sentence-level TTS ---------- */
+  const speakSentence = useSentenceQueue();
+
+  /* ---------- exported API ---------- */
   return {
+    /* mic */
     isRecording,
     start,
     stop,
-    /* transcription result */
-    transcript: stt.data ?? "",
-    sttLoading: stt.isPending,
-    sttError: stt.error as Error | null,
-    /* tts */
-    speak: tts.mutate,        // call speak(text)
-    ttsLoading: tts.isPending,
-    ttsError: tts.error as Error | null,
+    /* STT */
+    transcript: data ?? "",
+    sttLoading: isPending,
+    sttError: error as Error | null,
+    /* TTS */
+    speakSentence,
   };
 }

@@ -15,7 +15,6 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-# ── singleton AsyncOpenAI client ────────────────────────────────
 from pipeline_agents.openai_client import client
 from pipeline_agents.profile_builder import build_profile_builder_agent
 from voice.views import _get_client
@@ -48,7 +47,7 @@ def _maybe_call(attr):
 
 
 def extract_tool_schema(tool) -> Dict:
-    """Return an OpenAI-compatible schema dict for every FunctionTool fork."""
+    """Return an OpenAI-compatible JSON schema for any FunctionTool."""
     for name in (
         "openai_schema",
         "schema",
@@ -64,7 +63,8 @@ def extract_tool_schema(tool) -> Dict:
             if isinstance(obj, dict):
                 return obj
 
-    if hasattr(tool, "params_json_schema"):  # current Agents SDK
+    # Agents-SDK fall-backs
+    if hasattr(tool, "params_json_schema"):  # ≥ 0.0.18
         return {
             "type": "function",
             "function": {
@@ -73,8 +73,7 @@ def extract_tool_schema(tool) -> Dict:
                 "parameters": tool.params_json_schema,
             },
         }
-
-    if hasattr(tool, "model_dump"):  # pydantic model fallback
+    if hasattr(tool, "model_dump"):  # pydantic model
         return tool.model_dump()
 
     raise AttributeError("Unable to locate schema on FunctionTool")
@@ -82,13 +81,8 @@ def extract_tool_schema(tool) -> Dict:
 
 async def _invoke_tool(tool, raw_args: Dict) -> str:
     """
-    Call FunctionTool regardless of signature variant and always supply the
-    payload in the shape it expects.
-
-    Supports:
-      • (ctx, input)          – classic two-positional
-      • (input)               – single positional
-      • keyword-only (payload_json=…) or (**kwargs)
+    Call FunctionTool regardless of signature variant.
+    Accepts either a string payload_json or kwargs.
     """
     fn = tool.on_invoke_tool
     sig = inspect.signature(fn)
@@ -102,7 +96,6 @@ async def _invoke_tool(tool, raw_args: Dict) -> str:
         )
     ]
 
-    # Does the tool want a single *string* payload?
     wants_ctx = len(pos_params) == 2 and pos_params[0].name in ("ctx", "context")
     wants_input = (
         len(pos_params) == 1 and pos_params[0].name in ("input", "payload_json")
@@ -118,7 +111,7 @@ async def _invoke_tool(tool, raw_args: Dict) -> str:
             return await fn(None, payload_str)
         return await fn(payload_str)
 
-    # Keyword-style tools – ensure they still get `payload_json` as a string
+    # kwargs style – make sure payload_json is present if expected
     if "payload_json" in sig.parameters and "payload_json" not in raw_args:
         raw_args = {"payload_json": json.dumps(raw_args, separators=(",", ":"))}
 
@@ -130,16 +123,14 @@ class ProfileBuilderAgentView(APIView):
     """
     POST /api/agent/profile-builder/
       Body : {"message": "..."}
-      Stream (ND-JSON):
-        {"delta":"Hi","done":false}
-        …
-        {"delta":"","done":true,"audio_base64":"…"}
+      ND-JSON stream   →   {"delta":"Hi", "done":false} … {"delta":"", "done":true}
     """
 
     permission_classes = [permissions.IsAuthenticated]
     LOCK_TIMEOUT = 60
     CONTENT_TYPE = "application/x-ndjson"
 
+    # ───────────────────────── POST ──────────────────────────
     def post(self, request, *args, **kwargs):
         latest = (request.data.get("message") or "").strip()
         if not latest:
@@ -150,15 +141,16 @@ class ProfileBuilderAgentView(APIView):
 
         user = request.user
         lock_key = f"profile-builder-lock-{user.id}"
-
         if not cache.add(lock_key, True, self.LOCK_TIMEOUT):
             return Response(
                 {"detail": "Agent is already generating a reply, please wait."},
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 
+        # persist user message
         AgentMessage.objects.create(user=user, role="user", content=latest)
 
+        # conversation context
         history = list(AgentMessage.objects.filter(user=user).order_by("created_at"))
         prompt = make_prompt(history, latest)
         meta = build_profile_builder_agent(user_email=user.email)
@@ -170,23 +162,57 @@ class ProfileBuilderAgentView(APIView):
 
         q: "queue.Queue[str | dict]" = queue.Queue()
 
-        # ── background worker ───────────────────────────────────────────
+        # ─────────── background worker ───────────
         def worker() -> None:
             async def _run() -> None:
                 try:
-                    # 1️⃣  first call – let model decide if it needs a tool
-                    first = await client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=[system_msg, user_msg],
-                        tools=tool_schemas,
-                        stream=False,
-                    )
                     msgs: List[Dict] = [system_msg, user_msg]
-                    choice0 = first.choices[0].message
 
-                    if getattr(choice0, "tool_calls", None):
-                        # ── run each tool synchronously ─────────────────
-                        for tc in choice0.tool_calls:
+                    # 1️⃣  **First pass – STREAMED**
+                    stream1 = await client.chat.completions.create(
+                        model="gpt-3.5-turbo-0125",
+                        messages=msgs,
+                        tools=tool_schemas,
+                        stream=True,  # ←-- changed from False
+                    )
+
+                    collected_tokens: List[str] = []
+                    tool_calls_buffer: list = []
+
+                    async for chunk in stream1:
+                        delta = chunk.choices[0].delta
+
+                        # ---- tool call path --------------------------------
+                        if getattr(delta, "tool_calls", None):
+                            tool_calls_buffer.extend(delta.tool_calls)
+                            # No tokens should have been sent before a tool call,
+                            # so we DON'T push anything to the queue here.
+                            continue
+
+                        # ---- normal content path ---------------------------
+                        if delta.content:
+                            text = delta.content
+                            collected_tokens.append(text)
+                            q.put(text)
+
+                    # Did the model decide to invoke a tool?
+                    if tool_calls_buffer:
+                        # Discard any partial assistant text (should be none).
+                        collected_tokens = []
+
+                        # wrap the tool-call “assistant” message
+                        msgs.append(
+                            {
+                                "role": "assistant",
+                                "tool_calls": [
+                                    tc.model_dump() for tc in tool_calls_buffer
+                                ],
+                                "content": None,
+                            }
+                        )
+
+                        # Execute each tool synchronously
+                        for tc in tool_calls_buffer:
                             fn_name = tc.function.name
                             arg_json = tc.function.arguments or "{}"
                             kwargs = json.loads(arg_json)
@@ -194,37 +220,30 @@ class ProfileBuilderAgentView(APIView):
                             result = await _invoke_tool(tool_lookup[fn_name], kwargs)
 
                             msgs.append(
-                                {  # assistant tool-call wrapper
-                                    "role": "assistant",
-                                    "tool_calls": [tc.model_dump()],
-                                    "content": None,
-                                }
-                            )
-                            msgs.append(
-                                {  # tool result message
+                                {
                                     "role": "tool",
                                     "tool_call_id": tc.id,
                                     "content": result,
                                 }
                             )
-                    else:
-                        if choice0.content:  # model already answered
-                            q.put(choice0.content)
 
-                    # 2️⃣  final assistant stream ───────────────────────
-                    stream = await client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=msgs,
-                        stream=True,
-                    )
-                    full: List[str] = []
-                    async for chunk in stream:
-                        tok = chunk.choices[0].delta.content or ""
-                        if tok:
-                            full.append(tok)
-                            q.put(tok)
+                        # 2️⃣  **Second pass – final assistant stream**
+                        stream2 = await client.chat.completions.create(
+                            model="gpt-4o",
+                            messages=msgs,
+                            stream=False,
+                        )
 
-                    q.put({"__done__": True, "reply": "".join(full)})
+                        async for chunk in stream2:
+                            tok = chunk.choices[0].delta.content or ""
+                            if tok:
+                                collected_tokens.append(tok)
+                                q.put(tok)
+
+                    final_reply = "".join(collected_tokens)
+
+                    # signal end
+                    q.put({"__done__": True, "reply": final_reply})
 
                 except Exception as exc:
                     q.put({"__error__": str(exc)})
@@ -235,45 +254,46 @@ class ProfileBuilderAgentView(APIView):
 
         threading.Thread(target=worker, daemon=True).start()
 
-        # ── streaming HTTP response ───────────────────────────────────
+        # ─────────── Streaming HTTP response ───────────
         def event_stream() -> Generator[bytes, None, None]:
             while True:
                 item = q.get()
-                if isinstance(item, str):
+                if isinstance(item, str):  # incremental token
                     yield json.dumps({"delta": item, "done": False}).encode() + b"\n"
-                elif "__error__" in item:
+                    continue
+
+                # error sentinel
+                if "__error__" in item:
                     yield json.dumps({"error": item["__error__"]}).encode() + b"\n"
                     break
-                else:  # done sentinel
-                    reply: str = item["reply"]
 
-                    # optional TTS
-                    audio_b64: Optional[str] = None
-                    try:
-                        speech = _get_client().audio.speech.create(
-                            model="tts-1",
-                            voice="alloy",
-                            input=reply,
-                            response_format="mp3",
-                        )
-                        audio_b64 = base64.b64encode(speech.content).decode()
-                    except Exception:
-                        pass
+                # done sentinel
+                reply: str = item["reply"]
 
-                    AgentMessage.objects.create(
-                        user=user, role="assistant", content=reply
+                # optional TTS (non-blocking)
+                audio_b64: Optional[str] = None
+                try:
+                    speech = _get_client().audio.speech.create(
+                        model="tts-1",
+                        voice="alloy",
+                        input=reply,
+                        response_format="mp3",
                     )
+                    audio_b64 = base64.b64encode(speech.content).decode()
+                except Exception:
+                    pass
 
-                    payload = {"delta": "", "done": True}
-                    if audio_b64:
-                        payload["audio_base64"] = audio_b64
-                    if "profile_updated" in reply:
-                        payload["profile_updated_at"] = (
-                            user.profile.updated_at.isoformat()
-                        )
+                # persist assistant message
+                AgentMessage.objects.create(user=user, role="assistant", content=reply)
 
-                    yield json.dumps(payload).encode() + b"\n"
-                    break
+                payload = {"delta": "", "done": True}
+                if audio_b64:
+                    payload["audio_base64"] = audio_b64
+                if "profile_updated" in reply:
+                    payload["profile_updated_at"] = user.profile.updated_at.isoformat()
+
+                yield json.dumps(payload).encode() + b"\n"
+                break
 
         return StreamingHttpResponse(event_stream(), content_type=self.CONTENT_TYPE)
 
