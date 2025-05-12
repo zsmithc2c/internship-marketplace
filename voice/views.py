@@ -3,31 +3,46 @@ from __future__ import annotations
 
 import base64
 import io
-from typing import Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.conf import settings
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-try:
-    # OpenAI Python SDK v1.x
-    from openai import OpenAI
-except ImportError:  # pragma: no cover
-    OpenAI = None  # type: ignore
+# ------------------------------------------------------------------
+# Static-type–friendly alias for the OpenAI client
+# ------------------------------------------------------------------
+if TYPE_CHECKING:  # only active for mypy / pylance
+    from openai import OpenAI as _OpenAIType
+else:  # at runtime we don’t import OpenAI yet
+    _OpenAIType = Any  # noqa: N816  (capitalised alias)
+
+# ------------------------------------------------------------------
+# Singleton OpenAI client (lazily initialised, re-uses HTTP pool)
+# ------------------------------------------------------------------
+_CLIENT: Optional["_OpenAIType"] = None
 
 
-def _get_client() -> Any:  # returns OpenAI.Client
-    if OpenAI is None:
-        raise RuntimeError("openai package not installed")
-    return OpenAI(api_key=getattr(settings, "OPENAI_API_KEY", None))
+def _get_client() -> _OpenAIType:  # returns a fully-typed OpenAI client
+    global _CLIENT
+
+    if _CLIENT is None:
+        from openai import OpenAI  # local import avoids cost if never used
+
+        _CLIENT = OpenAI(api_key=getattr(settings, "OPENAI_API_KEY", None))
+
+    return _CLIENT
 
 
+# ------------------------------------------------------------------
+# Speech-to-Text
+# ------------------------------------------------------------------
 class SpeechToTextView(APIView):
     """
     POST /api/voice/stt/
-    Body: multipart/form-data 'audio'  OR  JSON { "audio_base64": "…" }
-    Returns: { "text": "…" }
+    Body   : multipart/form-data “audio”  OR  JSON { "audio_base64": "…" }
+    Return : { "text": "…" }
     """
 
     permission_classes = [permissions.IsAuthenticated]
@@ -35,7 +50,7 @@ class SpeechToTextView(APIView):
     def post(self, request, *args, **kwargs):
         client = _get_client()
 
-        # ---- get audio bytes ----
+        # ── load audio bytes ───────────────────────────────────────────
         if "audio" in request.FILES:
             audio_bytes = request.FILES["audio"].read()
         else:
@@ -47,11 +62,11 @@ class SpeechToTextView(APIView):
                 )
             audio_bytes = base64.b64decode(audio_b64)
 
-        # ---- wrap bytes with a filename so OpenAI detects .webm ----
+        # add filename so OpenAI recognises .webm
         bio = io.BytesIO(audio_bytes)
-        bio.name = "speech.webm"  # 👈 key fix
+        bio.name = "speech.webm"
 
-        # ---- OpenAI transcription ----
+        # ── Whisper transcription ─────────────────────────────────────
         transcript = client.audio.transcriptions.create(
             model="whisper-1",
             file=bio,
@@ -59,11 +74,14 @@ class SpeechToTextView(APIView):
         return Response({"text": transcript.text})
 
 
+# ------------------------------------------------------------------
+# Text-to-Speech
+# ------------------------------------------------------------------
 class TextToSpeechView(APIView):
     """
     POST /api/voice/tts/
-    JSON: { "text": "...", "voice": "alloy" }
-    Returns: { "audio_base64": "..." }
+    JSON   : { "text": "...", "voice": "alloy" }
+    Return : { "audio_base64": "..." }
     """
 
     permission_classes = [permissions.IsAuthenticated]
@@ -74,7 +92,8 @@ class TextToSpeechView(APIView):
         text = request.data.get("text")
         if not text:
             return Response(
-                {"detail": "Missing 'text' field"}, status=status.HTTP_400_BAD_REQUEST
+                {"detail": "Missing 'text' field"},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         voice = request.data.get("voice", "alloy")
@@ -83,7 +102,7 @@ class TextToSpeechView(APIView):
             model="tts-1",
             voice=voice,
             input=text,
-            response_format="mp3",  # 👈 new arg name
+            response_format="mp3",
         )
         audio_b64 = base64.b64encode(audio_bytes).decode("ascii")
         return Response({"audio_base64": audio_b64})

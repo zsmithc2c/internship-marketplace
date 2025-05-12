@@ -23,47 +23,64 @@ async function getHistory(): Promise<Msg[]> {
   return res.json();
 }
 
+/* ---------- helpers ---------- */
 async function streamAgent(
   message: string,
   onDelta: (token: string) => void
 ): Promise<DonePayload> {
-  const res = await fetchWithAuth("/api/agent/profile-builder/", {
+  const res = await fetchWithAuth("/api/agent/profile-builder", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message }),
   });
-  if (!res.ok || !res.body) {
-    throw new Error(await res.text());
-  }
+  if (!res.ok || !res.body) throw new Error(await res.text());
 
   const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
+  const dec = new TextDecoder();
+  let buf = "";
+  let sawDelta = false;          // 👈 new flag
 
   while (true) {
     const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+    if (value) buf += dec.decode(value, { stream: true });
 
+    /* --- parse complete lines --- */
     let idx;
-    while ((idx = buffer.indexOf("\n")) >= 0) {
-      const line = buffer.slice(0, idx).trim();
-      buffer = buffer.slice(idx + 1);
+    while ((idx = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, idx).trim();
+      buf = buf.slice(idx + 1);
       if (!line) continue;
 
-      const payload = JSON.parse(line) as
-        | { delta: string; done: false }
-        | DonePayload;
+      const payload =
+        JSON.parse(line) as { delta: string; done: boolean } & Partial<DonePayload>;
 
-      if (payload.done) {
-        return payload;
-      } else {
+      if (!payload.done) {
+        sawDelta = true;
         onDelta(payload.delta);
+      } else {
+        return payload as DonePayload;
       }
     }
+
+    if (done) break;
   }
+
+  /* --- connection closed --- */
+  buf = buf.trim();
+  if (buf) {
+    const maybe = JSON.parse(buf) as Partial<DonePayload>;
+    if (maybe.done) return maybe as DonePayload;
+  }
+
+  if (sawDelta) {
+    // graceful fallback: treat EOF as done
+    return { delta: "", done: true };
+  }
+
   throw new Error("Stream ended unexpectedly");
 }
+
+
 
 /* ---------- main hook ---------- */
 export function useVoiceAgent() {
@@ -76,12 +93,15 @@ export function useVoiceAgent() {
     staleTime: Infinity,
   });
 
-  /* -------- local history state -------- */
+  /* -------- reactive state -------- */
   const [history, setHistory] = useState<Msg[]>(serverHistory);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  useEffect(() => setHistory(serverHistory), [serverHistory]);
+  // Keep local history in sync whenever the query data object changes
+  useEffect(() => {
+    setHistory(serverHistory);
+  }, [serverHistory]); // ✅ include full object, ESLint-safe
 
   /* -------- voice (record / stt) -------- */
   const {
@@ -93,48 +113,57 @@ export function useVoiceAgent() {
     sttError,
   } = useVoice();
 
-  /* -------- send helper -------- */
+  /* -------- streaming assistant buffer -------- */
+  const assistantBuf = useRef("");
+
+  /* -------- helper to send a message -------- */
   const sendMessage = async (userMsg: string) => {
     setSending(true);
     setError(null);
+    assistantBuf.current = "";
 
-    // optimistic history append
+    // optimistic UI update
     setHistory((h) => [
       ...h,
       { role: "user", content: userMsg },
       { role: "assistant", content: "" },
     ]);
 
-    const onDelta = (tok: string) =>
+    const onDelta = (tok: string) => {
+      assistantBuf.current += tok;
       setHistory((h) => {
         const copy = [...h];
-        copy[copy.length - 1].content += tok;
+        copy[copy.length - 1] = {
+          role: "assistant",
+          content: assistantBuf.current,
+        };
         return copy;
       });
+    };
 
     try {
       const done = await streamAgent(userMsg, onDelta);
 
-      // play audio if provided
+      // optional audio
       if (done.audio_base64) {
         const audio = new Audio(`data:audio/mp3;base64,${done.audio_base64}`);
         audio.play().catch(() => {});
       }
 
-      // profile updated? → invalidate
+      // invalidate profile cache if updated
       if (done.profile_updated_at) {
         qc.invalidateQueries({ queryKey: ["profile", "me"] });
       }
 
-      // sync react-query cache
+      // persist to react-query cache
       qc.setQueryData(["chat", "profile-builder"], (old: Msg[] = []) => [
         ...old,
         { role: "user", content: userMsg },
-        { role: "assistant", content: history[history.length - 1].content },
+        { role: "assistant", content: assistantBuf.current },
       ]);
     } catch (err) {
       setError(err as Error);
-      // rollback assistant placeholder
+      // rollback placeholder assistant line
       setHistory((h) => h.slice(0, -1));
     } finally {
       setSending(false);
