@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Sheet, SheetContent, SheetHeader } from "@/components/ui/sheet";
 import { Mic, ChevronUp, Bot } from "lucide-react";
 import VoiceAgentChat from "./VoiceAgentChat";
+import ProfileSavedToast from "./Toast";          // ← NEW
 import { useVoiceAgentCtx } from "@/context/VoiceAgentContext";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
@@ -12,7 +13,7 @@ import { cn } from "@/lib/utils";
 export default function FloatingVoiceAgent() {
   /* ── hooks must run unconditionally ── */
   const { user } = useAuth();
-  const va = useVoiceAgentCtx();                // may be null when logged-out
+  const va = useVoiceAgentCtx(); // may be null when logged-out
   const [open, setOpen] = useState(false);
 
   /* ── if no auth or ctx yet, render nothing ── */
@@ -31,11 +32,14 @@ export default function FloatingVoiceAgent() {
       ? "bg-red-600 animate-pulse" // mic held
       : sending
       ? "bg-primary/90 after:absolute after:inset-0 after:rounded-full after:bg-primary/70 after:animate-ping"
-      : "bg-primary hover:-translate-y-1 hover:shadow-xl" // idle
+      : "bg-primary hover:-translate-y-1 hover:shadow-xl", // idle
   );
 
   return (
     <>
+      {/* toast lives at the very top of the fragment so it overlays everything */}
+      <ProfileSavedToast />
+
       {/* small ↑ arrow to expand transcript */}
       <button
         onClick={toggleSheet}

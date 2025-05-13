@@ -84,6 +84,7 @@ frontend/
       NavBar.tsx
       VoiceAgentChat.tsx
       VoiceChat.tsx
+      VoiceShell.tsx
     dashboard/
       page.tsx
     internships/
@@ -109,6 +110,8 @@ frontend/
         button.tsx
         card.tsx
         sheet.tsx
+    context/
+      VoiceAgentContext.tsx
     hooks/
       useAgentChat.ts
       useAuth.ts
@@ -506,181 +509,6 @@ export default function SignUp() {
 }
 </file>
 
-<file path="frontend/app/(marketing)/landing/page.tsx">
-// app/(marketing)/landing/page.tsx
-"use client";
-
-import { useState } from "react";
-import Image from "next/image";
-import Link from "next/link";
-import { motion, AnimatePresence } from "framer-motion";
-import { buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { ArrowRight } from "lucide-react";
-
-/* -------------------------------- helpers -------------------------------- */
-const itemFade = {
-  hidden: { opacity: 0, y: 24 },
-  show: (i: number) => ({
-    opacity: 1,
-    y: 0,
-    transition: { delay: 0.15 + i * 0.05, duration: 0.5 },
-  }),
-};
-
-export default function Landing() {
-  const [role, setRole] = useState<"student" | "employer">("student");
-
-  /* ---------- copy decks ---------- */
-  const decks: Record<"student" | "employer", string[]> = {
-    student: [
-      "Create one polished profile and reuse it everywhere.",
-      "Browse curated internship listings from vetted employers.",
-      "Auto-match with roles that fit your skills & availability.",
-    ],
-    employer: [
-      "Post internships in minutes — completely free.",
-      "See AI-ranked student matches the moment you publish.",
-      "Schedule interviews & send offers without leaving Pipeline.",
-    ],
-  };
-
-  return (
-    <main className="relative min-h-screen bg-neutral-50">
-      {/* ----------------------------- HERO -------------------------------- */}
-      <section className="relative isolate flex min-h-[70vh] flex-col items-center justify-center overflow-hidden bg-gradient-to-br from-teal-600 via-sky-600 to-indigo-600 px-6 pt-24 text-center text-white">
-        {/* floating blobs */}
-        <motion.div
-          className="pointer-events-none absolute -left-40 -top-40 size-[32rem] rounded-full bg-teal-300/20 blur-3xl"
-          animate={{ y: [0, 30, -10, 0], x: [0, -10, 20, 0] }}
-          transition={{ duration: 18, repeat: Infinity }}
-        />
-        <motion.div
-          className="pointer-events-none absolute bottom-0 right-0 size-[40rem] rounded-full bg-indigo-400/20 blur-3xl"
-          animate={{ y: [0, -20, 10, 0], x: [0, 10, -30, 0] }}
-          transition={{ duration: 20, repeat: Infinity }}
-        />
-
-        {/* subtle illustration */}
-        <Image
-          src="/hero-graph.svg"
-          alt=""
-          width={900}
-          height={600}
-          priority
-          className="pointer-events-none absolute inset-0 mx-auto opacity-10"
-        />
-
-        <motion.h1
-          className="relative z-10 max-w-4xl text-4xl font-extrabold leading-tight md:text-5xl"
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0, transition: { duration: 0.6 } }}
-        >
-          Your Career&nbsp;Starts&nbsp;Here
-        </motion.h1>
-
-        <motion.p
-          className="relative z-10 mt-4 max-w-2xl text-lg opacity-90"
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0, transition: { delay: 0.1, duration: 0.6 } }}
-        >
-          Pipeline connects ambitious students with forward-thinking employers,
-          making internships friction-free for everyone.
-        </motion.p>
-
-        {/* toggle pill */}
-        <motion.div
-          className="relative z-10 mt-10 inline-flex rounded-xl bg-white/10 p-1 backdrop-blur"
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0, transition: { delay: 0.2, duration: 0.6 } }}
-        >
-          {(["student", "employer"] as const).map((label) => (
-            <button
-              key={label}
-              onClick={() => setRole(label)}
-              className={cn(
-                "relative z-10 min-w-[7rem] rounded-lg px-4 py-2 text-sm font-medium transition",
-                role === label ? "text-neutral-900" : "text-white/80"
-              )}
-            >
-              {label === "student" ? "Students" : "Employers"}
-            </button>
-          ))}
-          <motion.span
-            layout
-            transition={{ type: "spring", stiffness: 260, damping: 30 }}
-            className={cn(
-              "absolute inset-y-0 z-0 w-1/2 rounded-lg bg-white shadow-md",
-              role === "student" ? "left-0" : "left-1/2"
-            )}
-          />
-        </motion.div>
-      </section>
-
-      {/* ----------------------- ROLE-SPECIFIC PANEL ----------------------- */}
-      <section className="relative z-20 mx-auto -mt-24 max-w-6xl px-6 pb-32">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={role}
-            initial={{ opacity: 0, y: 32 }}
-            animate={{ opacity: 1, y: 0, transition: { duration: 0.5 } }}
-            exit={{ opacity: 0, y: -32, transition: { duration: 0.4 } }}
-            className="rounded-3xl border bg-white/80 p-10 shadow-xl backdrop-blur-md"
-          >
-            <h2 className="mb-8 text-center text-2xl font-semibold text-[--accent-primary]">
-              {role === "student" ? "For Students" : "For Employers"}
-            </h2>
-
-            {/* feature grid */}
-            <ul className="mx-auto grid max-w-4xl gap-6 sm:grid-cols-2 md:grid-cols-3">
-              {decks[role].map((item, i) => (
-                <motion.li
-                  key={item}
-                  custom={i}
-                  variants={itemFade}
-                  initial="hidden"
-                  animate="show"
-                  className="rounded-2xl bg-gray-50 p-6 text-sm leading-relaxed shadow hover:-translate-y-1 hover:shadow-md"
-                >
-                  {item}
-                </motion.li>
-              ))}
-            </ul>
-
-            {/* calls-to-action */}
-            <div className="mt-10 flex flex-wrap justify-center gap-4">
-              {/* SIGN-UP / CREATE ACCOUNT */}
-              <Link
-                href={`/register?role=${role}`}
-                className={cn(
-                  buttonVariants({ variant: "default", size: "lg" }),
-                  // Always visible on white
-                  "bg-teal-600 text-white hover:bg-teal-700 focus-visible:ring-teal-700 gap-1.5"
-                )}
-              >
-                {role === "student" ? "Sign up" : "Create account"}
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-
-              {/* LOG-IN */}
-              <Link
-                href="/login"
-                className={cn(
-                  buttonVariants({ variant: "ghost", size: "lg" }),
-                  "border border-teal-600 text-teal-700 hover:bg-teal-50 focus-visible:ring-teal-600"
-                )}
-              >
-                Log in
-              </Link>
-            </div>
-          </motion.div>
-        </AnimatePresence>
-      </section>
-    </main>
-  );
-}
-</file>
-
 <file path="frontend/app/components/AgentChat.tsx">
 "use client";
 
@@ -748,50 +576,6 @@ export default function AgentChat() {
 }
 </file>
 
-<file path="frontend/app/components/FloatingVoiceAgent.tsx">
-// frontend/app/components/FloatingVoiceAgent.tsx
-"use client";
-
-import { useState } from "react";
-import { Sheet, SheetContent, SheetHeader } from "@/components/ui/sheet";
-import { Mic } from "lucide-react";
-import VoiceAgentChat from "./VoiceAgentChat";
-
-export default function FloatingVoiceAgent() {
-  const [open, setOpen] = useState(false);
-
-  /* --- helpers --- */
-  const toggle = () => setOpen((o) => !o);
-  const openAndStart = () => setOpen(true);   // could trigger recording later
-
-  return (
-    <>
-      {/* Mic bubble */}
-      <button
-        onClick={toggle}
-        onPointerDown={openAndStart}
-        className="fixed bottom-6 right-6 z-50 flex h-16 w-16 items-center justify-center rounded-full bg-primary text-white shadow-lg transition-all hover:-translate-y-1 hover:shadow-xl active:translate-y-0 active:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/50"
-        aria-label="Open voice assistant"
-      >
-        <Mic className="h-8 w-8" />
-      </button>
-
-      {/* Slide-over chat */}
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="right" className="w-full max-w-lg p-0">
-          <SheetHeader className="border-b p-4">
-            <h2 className="text-lg font-semibold">Voice Assistant</h2>
-          </SheetHeader>
-          <div className="p-4">
-            <VoiceAgentChat />
-          </div>
-        </SheetContent>
-      </Sheet>
-    </>
-  );
-}
-</file>
-
 <file path="frontend/app/components/VoiceChat.tsx">
 import VoiceChat from "../components/VoiceChat";
 
@@ -800,6 +584,49 @@ export default function Profile() {
     <main className="flex min-h-screen flex-col items-center justify-center p-4">
       <VoiceChat />
     </main>
+  );
+}
+</file>
+
+<file path="frontend/app/components/VoiceShell.tsx">
+// frontend/app/components/VoiceShell.tsx
+"use client";
+
+import { usePathname } from "next/navigation";
+import NavBar from "./NavBar";
+import FloatingVoiceAgent from "./FloatingVoiceAgent";
+import { VoiceAgentProvider } from "@/context/VoiceAgentContext";
+
+/**
+ * Wraps the whole signed-in UI with:
+ *   • NavBar
+ *   • VoiceAgentProvider (query + recording state)
+ *   • FloatingVoiceAgent mic bubble
+ *
+ * It stays **hidden** on public / auth pages
+ * (`/landing`, `/login`, `/signup`) to avoid JWT-less API calls.
+ */
+export default function VoiceShell({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const pathname = usePathname();
+  const isPublic =
+    pathname === "/landing" ||
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/signup");
+
+  // ── Marketing / auth pages ─────────────────────────────────
+  if (isPublic) return <>{children}</>;
+
+  // ── App pages (authenticated) ──────────────────────────────
+  return (
+    <VoiceAgentProvider>
+      <NavBar />
+      {children}
+      <FloatingVoiceAgent />
+    </VoiceAgentProvider>
   );
 }
 </file>
@@ -1105,6 +932,32 @@ export function SheetHeader({
   );
 }
 SheetHeader.displayName = "SheetHeader";
+</file>
+
+<file path="frontend/src/context/VoiceAgentContext.tsx">
+// frontend/src/context/VoiceAgentContext.tsx
+"use client";
+
+import { createContext, useContext } from "react";
+import { useVoiceAgent } from "@/hooks/useVoiceAgent";
+
+/* ------------------------------------------------------------------
+   A single global Voice-Agent instance.  The hook itself is safe on
+   the server (it no-ops there thanks to isBrowser checks inside), so
+   we invoke it unconditionally to satisfy the Rules-of-Hooks.
+   ------------------------------------------------------------------ */
+
+const VoiceCtx = createContext<ReturnType<typeof useVoiceAgent> | null>(null);
+
+export function VoiceAgentProvider({ children }: { children: React.ReactNode }) {
+  const va = useVoiceAgent();          // ← always called, hook order stable
+  return <VoiceCtx.Provider value={va}>{children}</VoiceCtx.Provider>;
+}
+
+/** Consumer returns the Voice-Agent API (or `null` pre-login). */
+export function useVoiceAgentCtx() {
+  return useContext(VoiceCtx);
+}
 </file>
 
 <file path="frontend/.gitignore">
@@ -1778,6 +1631,181 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "backend.settings")
 application = get_wsgi_application()
 </file>
 
+<file path="frontend/app/(marketing)/landing/page.tsx">
+// app/(marketing)/landing/page.tsx
+"use client";
+
+import { useState } from "react";
+import Image from "next/image";
+import Link from "next/link";
+import { motion, AnimatePresence } from "framer-motion";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { ArrowRight } from "lucide-react";
+
+/* -------------------------------- helpers -------------------------------- */
+const itemFade = {
+  hidden: { opacity: 0, y: 24 },
+  show: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { delay: 0.15 + i * 0.05, duration: 0.5 },
+  }),
+};
+
+export default function Landing() {
+  const [role, setRole] = useState<"student" | "employer">("student");
+
+  /* ---------- copy decks ---------- */
+  const decks: Record<"student" | "employer", string[]> = {
+    student: [
+      "Create one polished profile and reuse it everywhere.",
+      "Browse curated internship listings from vetted employers.",
+      "Auto-match with roles that fit your skills & availability.",
+    ],
+    employer: [
+      "Post internships in minutes — completely free.",
+      "See AI-ranked student matches the moment you publish.",
+      "Schedule interviews & send offers without leaving Pipeline.",
+    ],
+  };
+
+  return (
+    <main className="relative min-h-screen bg-neutral-50">
+      {/* ----------------------------- HERO -------------------------------- */}
+      <section className="relative isolate flex min-h-[70vh] flex-col items-center justify-center overflow-hidden bg-gradient-to-br from-teal-600 via-sky-600 to-indigo-600 px-6 pt-24 text-center text-white">
+        {/* floating blobs */}
+        <motion.div
+          className="pointer-events-none absolute -left-40 -top-40 size-[32rem] rounded-full bg-teal-300/20 blur-3xl"
+          animate={{ y: [0, 30, -10, 0], x: [0, -10, 20, 0] }}
+          transition={{ duration: 18, repeat: Infinity }}
+        />
+        <motion.div
+          className="pointer-events-none absolute bottom-0 right-0 size-[40rem] rounded-full bg-indigo-400/20 blur-3xl"
+          animate={{ y: [0, -20, 10, 0], x: [0, 10, -30, 0] }}
+          transition={{ duration: 20, repeat: Infinity }}
+        />
+
+        {/* subtle illustration */}
+        <Image
+          src="/hero-graph.svg"
+          alt=""
+          width={900}
+          height={600}
+          priority
+          className="pointer-events-none absolute inset-0 mx-auto opacity-10"
+        />
+
+        <motion.h1
+          className="relative z-10 max-w-4xl text-4xl font-extrabold leading-tight md:text-5xl"
+          initial={{ opacity: 0, y: 18 }}
+          animate={{ opacity: 1, y: 0, transition: { duration: 0.6 } }}
+        >
+          Your Career&nbsp;Starts&nbsp;Here
+        </motion.h1>
+
+        <motion.p
+          className="relative z-10 mt-4 max-w-2xl text-lg opacity-90"
+          initial={{ opacity: 0, y: 18 }}
+          animate={{ opacity: 1, y: 0, transition: { delay: 0.1, duration: 0.6 } }}
+        >
+          Pipeline connects ambitious students with forward-thinking employers,
+          making internships friction-free for everyone.
+        </motion.p>
+
+        {/* toggle pill */}
+        <motion.div
+          className="relative z-10 mt-10 inline-flex rounded-xl bg-white/10 p-1 backdrop-blur"
+          initial={{ opacity: 0, y: 18 }}
+          animate={{ opacity: 1, y: 0, transition: { delay: 0.2, duration: 0.6 } }}
+        >
+          {(["student", "employer"] as const).map((label) => (
+            <button
+              key={label}
+              onClick={() => setRole(label)}
+              className={cn(
+                "relative z-10 min-w-[7rem] rounded-lg px-4 py-2 text-sm font-medium transition",
+                role === label ? "text-neutral-900" : "text-white/80"
+              )}
+            >
+              {label === "student" ? "Students" : "Employers"}
+            </button>
+          ))}
+          <motion.span
+            layout
+            transition={{ type: "spring", stiffness: 260, damping: 30 }}
+            className={cn(
+              "absolute inset-y-0 z-0 w-1/2 rounded-lg bg-white shadow-md",
+              role === "student" ? "left-0" : "left-1/2"
+            )}
+          />
+        </motion.div>
+      </section>
+
+      {/* ----------------------- ROLE-SPECIFIC PANEL ----------------------- */}
+      <section className="relative z-20 mx-auto -mt-24 max-w-6xl px-6 pb-32">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={role}
+            initial={{ opacity: 0, y: 32 }}
+            animate={{ opacity: 1, y: 0, transition: { duration: 0.5 } }}
+            exit={{ opacity: 0, y: -32, transition: { duration: 0.4 } }}
+            className="rounded-3xl border bg-white/80 p-10 shadow-xl backdrop-blur-md"
+          >
+            <h2 className="mb-8 text-center text-2xl font-semibold text-[--accent-primary]">
+              {role === "student" ? "For Students" : "For Employers"}
+            </h2>
+
+            {/* feature grid */}
+            <ul className="mx-auto grid max-w-4xl gap-6 sm:grid-cols-2 md:grid-cols-3">
+              {decks[role].map((item, i) => (
+                <motion.li
+                  key={item}
+                  custom={i}
+                  variants={itemFade}
+                  initial="hidden"
+                  animate="show"
+                  className="rounded-2xl bg-gray-50 p-6 text-sm leading-relaxed shadow hover:-translate-y-1 hover:shadow-md"
+                >
+                  {item}
+                </motion.li>
+              ))}
+            </ul>
+
+            {/* calls-to-action */}
+            <div className="mt-10 flex flex-wrap justify-center gap-4">
+              {/* SIGN-UP / CREATE ACCOUNT */}
+              <Link
+                href="/signup"
+                className={cn(
+                  buttonVariants({ variant: "default", size: "lg" }),
+                  // Always visible on white
+                  "bg-teal-600 text-white hover:bg-teal-700 focus-visible:ring-teal-700 gap-1.5"
+                )}
+              >
+                {role === "student" ? "Sign up" : "Create account"}
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+
+              {/* LOG-IN */}
+              <Link
+                href="/login"
+                className={cn(
+                  buttonVariants({ variant: "ghost", size: "lg" }),
+                  "border border-teal-600 text-teal-700 hover:bg-teal-50 focus-visible:ring-teal-600"
+                )}
+              >
+                Log in
+              </Link>
+            </div>
+          </motion.div>
+        </AnimatePresence>
+      </section>
+    </main>
+  );
+}
+</file>
+
 <file path="frontend/app/account/page.tsx">
 "use client";
 
@@ -1871,6 +1899,87 @@ export default function AccountPage() {
         </motion.div>
       </section>
     </main>
+  );
+}
+</file>
+
+<file path="frontend/app/components/FloatingVoiceAgent.tsx">
+// frontend/app/components/FloatingVoiceAgent.tsx
+"use client";
+
+import { useState } from "react";
+import { Sheet, SheetContent, SheetHeader } from "@/components/ui/sheet";
+import { Mic, ChevronUp, Bot } from "lucide-react";
+import VoiceAgentChat from "./VoiceAgentChat";
+import { useVoiceAgentCtx } from "@/context/VoiceAgentContext";
+import { useAuth } from "@/hooks/useAuth";
+import { cn } from "@/lib/utils";
+
+export default function FloatingVoiceAgent() {
+  /* ── hooks must run unconditionally ── */
+  const { user } = useAuth();
+  const va = useVoiceAgentCtx();                // may be null when logged-out
+  const [open, setOpen] = useState(false);
+
+  /* ── if no auth or ctx yet, render nothing ── */
+  if (!user || !va) return null;
+
+  const { isRecording, start, stop, sending } = va;
+
+  /* ---------- UI helpers ---------- */
+  const toggleSheet = () => setOpen((o) => !o);
+
+  /* ---------- bubble style ---------- */
+  const bubbleCls = cn(
+    "fixed bottom-6 right-6 z-50 grid size-16 place-items-center rounded-full text-white shadow-lg transition-all",
+    "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/50",
+    isRecording
+      ? "bg-red-600 animate-pulse" // mic held
+      : sending
+      ? "bg-primary/90 after:absolute after:inset-0 after:rounded-full after:bg-primary/70 after:animate-ping"
+      : "bg-primary hover:-translate-y-1 hover:shadow-xl" // idle
+  );
+
+  return (
+    <>
+      {/* small ↑ arrow to expand transcript */}
+      <button
+        onClick={toggleSheet}
+        className="fixed bottom-[5.75rem] right-8 z-50 rounded-full bg-background/70 p-1 shadow-md backdrop-blur hover:shadow-lg"
+        aria-label={open ? "Hide transcript" : "Show transcript"}
+      >
+        <ChevronUp
+          className={cn("h-5 w-5 transition-transform", open && "rotate-180")}
+        />
+      </button>
+
+      {/* mic bubble */}
+      <button
+        onPointerDown={start}
+        onPointerUp={stop}
+        onPointerCancel={stop}
+        className={bubbleCls}
+        aria-label="Hold to talk"
+      >
+        {sending && !isRecording ? (
+          <Bot className="h-7 w-7" />
+        ) : (
+          <Mic className="h-7 w-7" />
+        )}
+      </button>
+
+      {/* transcript slide-over */}
+      <Sheet open={open} onOpenChange={setOpen}>
+        <SheetContent side="right" className="w-full max-w-lg p-0">
+          <SheetHeader className="border-b p-4">
+            <h2 className="text-lg font-semibold">Voice Assistant</h2>
+          </SheetHeader>
+          <div className="p-4">
+            <VoiceAgentChat />
+          </div>
+        </SheetContent>
+      </Sheet>
+    </>
   );
 }
 </file>
@@ -1970,36 +2079,6 @@ export default function VoiceAgentChat() {
         Press &amp; hold the mic – release to send.
       </p>
     </div>
-  );
-}
-</file>
-
-<file path="frontend/app/page.tsx">
-"use client";
-
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { useAuth } from "../src/hooks/useAuth";
-
-export default function Index() {
-  const { user, isLoading } = useAuth();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (isLoading) return;              // wait until useAuth resolves
-
-    if (user) {
-      router.replace("/dashboard");     // already logged in
-    } else {
-      router.replace("/login");         // not logged in
-    }
-  }, [isLoading, user, router]);
-
-  /* small placeholder while deciding */
-  return (
-    <main className="flex min-h-screen items-center justify-center">
-      <p>Redirecting…</p>
-    </main>
   );
 }
 </file>
@@ -2913,137 +2992,6 @@ class RefreshView(TokenRefreshView):
     permission_classes = [permissions.AllowAny]
 </file>
 
-<file path="frontend/app/dashboard/page.tsx">
-"use client";
-
-import Link from "next/link";
-import { jwtDecode } from "jwt-decode";
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import {
-  Card, CardContent, CardHeader, CardTitle,
-} from "@/components/ui/card";
-import {
-  User, Briefcase, GraduationCap,
-  LogOut, Sparkles,
-} from "lucide-react";
-import { useProfile } from "@/hooks/useProfile";
-
-interface JwtPayload { role: string; exp: number; iat: number }
-
-export default function Dashboard() {
-  const router = useRouter();
-  const [role, setRole] = useState<string | null>(null);
-
-  useEffect(() => {
-    const t = localStorage.getItem("access");
-    if (!t) return router.replace("/login");
-    try { setRole(jwtDecode<JwtPayload>(t).role); }
-    catch { router.replace("/login"); }
-  }, [router]);
-
-  const { data: profile, isLoading } = useProfile();
-
-  /* —— cards to surface —— */
-  const tiles = [
-    { icon: <Sparkles className="h-6 w-6" />, title: "Pipeline Agent",
-      desc: "Ask anything – your AI mentor is listening.",
-      href: "/profile/builder" },
-    { icon: <User className="h-6 w-6" />, title: "My Account",
-      desc: "Manage credentials & notifications.", href: "/account" },
-  ];
-
-  if (role === "INTERN") {
-    tiles.push(
-      { icon: <GraduationCap className="h-6 w-6" />, title: "My Profile",
-        desc: "See what employers see.", href: "/profile" },
-      { icon: <Briefcase className="h-6 w-6" />, title: "Internships",
-        desc: "Browse & apply in seconds.", href: "/internships" },
-    );
-  }
-
-  /* —— render —— */
-  return (
-    <main className="pt-14"> {/* makes room for fixed nav */}
-      {/* hero */}
-      <section className="relative isolate overflow-hidden bg-gradient-to-br
-                           from-indigo-500 via-violet-600 to-fuchsia-600">
-        <div className="absolute inset-0 opacity-30 mix-blend-soft-light
-                        [mask-image:radial-gradient(transparent_40%,black)]" />
-        <div className="mx-auto flex max-w-5xl flex-col items-center gap-4 px-6 py-20 text-center">
-          <h1 className="text-4xl/tight font-extrabold tracking-tight text-white drop-shadow-sm">
-            Welcome back{role ? `, ${role.toLowerCase()}!` : "!"}
-          </h1>
-          <p className="max-w-lg text-white/90">
-            Pipeline pairs top early-talent with curated internships
-            and an always-on AI career coach.
-          </p>
-          <button
-            onClick={() => {
-              localStorage.removeItem("access");
-              localStorage.removeItem("refresh");
-              router.push("/login");
-            }}
-            className="group mt-4 inline-flex items-center gap-1 rounded-md
-                       bg-white/10 px-4 py-2 text-sm font-medium text-white
-                       ring-1 ring-inset ring-white/20 backdrop-blur-lg
-                       transition hover:bg-white/20"
-          >
-            <LogOut className="h-4 w-4 stroke-[2.5]" /> Log out
-          </button>
-        </div>
-      </section>
-
-      {/* quick-links */}
-      <section className="-mt-16 bg-gray-50/60 pb-20 pt-24">
-        <div className="mx-auto grid max-w-6xl gap-6 px-6 sm:grid-cols-2 lg:grid-cols-3">
-          {tiles.map(({ href, icon, title, desc }) => (
-            <Link key={href} href={href} className="group">
-              <Card className="h-full rounded-2xl border border-transparent bg-white/90
-                                shadow-sm ring-1 ring-gray-200 transition
-                                hover:-translate-y-1 hover:border-primary/30 hover:shadow-lg">
-                <CardHeader className="flex flex-row items-center gap-3 pb-0">
-                  <div className="grid size-10 place-items-center rounded-lg
-                                   bg-primary/10 text-primary transition
-                                   group-hover:bg-primary group-hover:text-white">
-                    {icon}
-                  </div>
-                  <CardTitle className="text-lg">{title}</CardTitle>
-                </CardHeader>
-                <CardContent className="pt-3 text-sm text-muted-foreground">
-                  {desc}
-                </CardContent>
-              </Card>
-            </Link>
-          ))}
-        </div>
-
-        {/* profile freshness banner */}
-        {role === "INTERN" && (
-          <div className="mx-auto mt-10 max-w-6xl px-6">
-            <Card className="rounded-xl border-l-4 border-primary bg-white/90 shadow-sm">
-              <CardContent className="flex items-center gap-2 py-4 text-sm">
-                {isLoading ? (
-                  <>Checking profile…</>
-                ) : profile ? (
-                  <>
-                    Your profile was last updated&nbsp;
-                    {new Date(profile.updated_at).toLocaleDateString()} – speak
-                    to the mic-bubble to keep refining!
-                  </>
-                ) : (
-                  <>No profile data found.</>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        )}
-      </section>
-    </main>
-  );
-}
-</file>
-
 <file path="frontend/app/globals.css">
 /* frontend/app/globals.css */
 @import "tailwindcss";
@@ -3247,6 +3195,37 @@ body {
 .border-primary    { border-color: var(--color-primary); }
 .border-primary\/30{ border-color: color-mix(in oklab,
                            var(--color-primary) 30%, transparent); }
+</file>
+
+<file path="frontend/app/page.tsx">
+// frontend/app/page.tsx
+"use client";
+
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "../src/hooks/useAuth";
+
+export default function Index() {
+  const { user, isLoading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (isLoading) return;              // wait until useAuth resolves
+
+    if (user) {
+      router.replace("/dashboard");     // already logged in
+    } else {
+      router.replace("/landing");       // not logged in → public marketing
+    }
+  }, [isLoading, user, router]);
+
+  /* small placeholder while deciding */
+  return (
+    <main className="flex min-h-screen items-center justify-center">
+      <p>Redirecting…</p>
+    </main>
+  );
+}
 </file>
 
 <file path="frontend/src/hooks/useAgentChat.ts">
@@ -3827,6 +3806,164 @@ export default function NavBar() {
 }
 </file>
 
+<file path="frontend/app/dashboard/page.tsx">
+// frontend/app/dashboard/page.tsx
+"use client";
+
+import Link from "next/link";
+import { jwtDecode } from "jwt-decode";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  User,
+  Briefcase,
+  GraduationCap,
+  LogOut,
+  Sparkles,
+} from "lucide-react";
+import { useProfile } from "@/hooks/useProfile";
+
+interface JwtPayload {
+  role: string;
+  exp: number;
+  iat: number;
+}
+
+export default function Dashboard() {
+  const router = useRouter();
+  const [role, setRole] = useState<string | null>(null);
+
+  /* ────────────────────────────────────────────────
+     Auth guard & role                               
+  ─────────────────────────────────────────────────── */
+  useEffect(() => {
+    const t = localStorage.getItem("access");
+    if (!t) return router.replace("/login");
+    try {
+      setRole(jwtDecode<JwtPayload>(t).role);
+    } catch {
+      router.replace("/login");
+    }
+  }, [router]);
+
+  const { data: profile, isLoading } = useProfile();
+
+  /* ────────────────────────────────────────────────
+     Quick-link tiles                                
+  ─────────────────────────────────────────────────── */
+  const tiles = [
+    {
+      icon: <Sparkles className="h-6 w-6" />,
+      title: "Pipeline Agent",
+      desc: "Ask anything – your AI mentor is listening.",
+      href: "/profile/builder",
+    },
+    {
+      icon: <User className="h-6 w-6" />,
+      title: "My Account",
+      desc: "Manage credentials & notifications.",
+      href: "/account",
+    },
+  ];
+
+  if (role === "INTERN") {
+    tiles.push(
+      {
+        icon: <GraduationCap className="h-6 w-6" />,
+        title: "My Profile",
+        desc: "See what employers see.",
+        href: "/profile",
+      },
+      {
+        icon: <Briefcase className="h-6 w-6" />,
+        title: "Internships",
+        desc: "Browse & apply in seconds.",
+        href: "/internships",
+      },
+    );
+  }
+
+  /* ────────────────────────────────────────────────
+     Render                                           
+  ─────────────────────────────────────────────────── */
+  return (
+    <main className="pt-14">
+      {/* ── Hero ── */}
+      <section className="relative isolate overflow-hidden bg-gradient-to-br from-indigo-500 via-violet-600 to-fuchsia-600">
+        <div className="absolute inset-0 opacity-30 mix-blend-soft-light [mask-image:radial-gradient(transparent_40%,black)]" />
+        <div className="mx-auto flex max-w-5xl flex-col items-center gap-4 px-6 py-20 text-center">
+          <h1 className="text-4xl/tight font-extrabold tracking-tight text-white drop-shadow-sm">
+            Welcome back{role ? `, ${role.toLowerCase()}!` : "!"}
+          </h1>
+          <p className="max-w-lg text-white/90">
+            Pipeline pairs top early-talent with curated internships
+            and an always-on AI career coach.
+          </p>
+          <button
+            onClick={() => {
+              localStorage.removeItem("access");
+              localStorage.removeItem("refresh");
+              router.push("/login");
+            }}
+            className="group mt-4 inline-flex items-center gap-1 rounded-md bg-white/10 px-4 py-2 text-sm font-medium text-white ring-1 ring-inset ring-white/20 backdrop-blur-lg transition hover:bg-white/20"
+          >
+            <LogOut className="h-4 w-4 stroke-[2.5]" /> Log out
+          </button>
+        </div>
+      </section>
+
+      {/* ── Quick links ── */}
+      <section className="-mt-16 bg-gray-50/60 pb-20 pt-24">
+        <div className="mx-auto grid max-w-6xl gap-6 px-6 sm:grid-cols-2 lg:grid-cols-3">
+          {tiles.map(({ href, icon, title, desc }) => (
+            <Link key={href} href={href} className="group">
+              <Card className="h-full rounded-2xl border border-transparent bg-white/90 shadow-sm ring-1 ring-gray-200 transition hover:-translate-y-1 hover:border-primary/30 hover:shadow-lg">
+                <CardHeader className="flex flex-row items-center gap-3 pb-0">
+                  <div className="grid size-10 place-items-center rounded-lg bg-primary/10 text-primary transition group-hover:bg-primary group-hover:text-white">
+                    {icon}
+                  </div>
+                  <CardTitle className="text-lg">{title}</CardTitle>
+                </CardHeader>
+                <CardContent className="pt-3 text-sm text-muted-foreground">
+                  {desc}
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
+        </div>
+
+        {/* ── Profile freshness banner ── */}
+        {role === "INTERN" && (
+          <div className="mx-auto mt-10 max-w-6xl px-6">
+            <Card className="rounded-xl border-l-4 border-primary bg-white/90 shadow-sm">
+              <CardContent className="flex items-center gap-2 py-4 text-sm">
+                {isLoading ? (
+                  <>Checking profile…</>
+                ) : profile ? (
+                  <>
+                    Your profile was last updated&nbsp;
+                    {new Date(profile.updated_at).toLocaleDateString()} – speak
+                    to the mic-bubble to keep refining!
+                  </>
+                ) : (
+                  <>No profile data found.</>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+      </section>
+    </main>
+  );
+}
+</file>
+
 <file path="frontend/app/profile/builder/page.tsx">
 // frontend/app/profile/builder/page.tsx
 "use client";
@@ -3937,94 +4074,6 @@ export default function ProfileBuilderPage() {
       <MicOnlyChat />
     </main>
   );
-}
-</file>
-
-<file path="frontend/app/layout.tsx">
-// frontend/app/layout.tsx
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import "./globals.css";
-import Providers from "./providers";
-import NavBar from "./components/NavBar";
-import FloatingVoiceAgent from "./components/FloatingVoiceAgent";   // ← NEW
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
-export const metadata: Metadata = {
-  title: "Internship Marketplace",
-  description: "AI-powered internship marketplace",
-};
-
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
-  return (
-    <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        <Providers>
-          <NavBar />
-          {children}
-          {/* floating mic widget lives on every page */}
-          <FloatingVoiceAgent />
-        </Providers>
-      </body>
-    </html>
-  );
-}
-</file>
-
-<file path="frontend/package.json">
-{
-  "name": "frontend",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "type-check": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@radix-ui/react-slot": "^1.2.2",
-    "@tanstack/react-query": "^5.75.2",
-    "@tanstack/react-query-devtools": "^5.75.2",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "framer-motion": "^12.11.0",
-    "jwt-decode": "^4.0.0",
-    "lucide-react": "^0.508.0",
-    "next": "15.3.1",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "tailwind-merge": "^3.2.0"
-  },
-  "devDependencies": {
-    "@eslint/eslintrc": "^3",
-    "@tailwindcss/postcss": "^4",
-    "@types/jwt-decode": "^2.2.1",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "15.3.1",
-    "tailwindcss": "^4",
-    "tw-animate-css": "^1.2.9",
-    "typescript": "^5"
-  }
 }
 </file>
 
@@ -4429,6 +4478,88 @@ export default function ProfilePage() {
 }
 </file>
 
+<file path="frontend/app/layout.tsx">
+// frontend/app/layout.tsx
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+
+import "./globals.css";
+import Providers from "./providers";
+import VoiceShell from "./components/VoiceShell";   // ← new wrapper
+
+/* ── fonts ── */
+const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "Internship Marketplace",
+  description: "AI-powered internship marketplace",
+};
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="en">
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+        <Providers>
+          {/* NavBar + mic live inside; hides on /landing, /login, /signup */}
+          <VoiceShell>{children}</VoiceShell>
+        </Providers>
+      </body>
+    </html>
+  );
+}
+</file>
+
+<file path="frontend/package.json">
+{
+  "name": "frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.13",
+    "@radix-ui/react-slot": "^1.2.2",
+    "@tanstack/react-query": "^5.75.2",
+    "@tanstack/react-query-devtools": "^5.75.2",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.11.0",
+    "jwt-decode": "^4.0.0",
+    "lucide-react": "^0.508.0",
+    "next": "15.3.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^3.2.0"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/jwt-decode": "^2.2.1",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "15.3.1",
+    "tailwindcss": "^4",
+    "tw-animate-css": "^1.2.9",
+    "typescript": "^5"
+  }
+}
+</file>
+
 <file path="profiles/urls.py">
 # profiles/urls.py
 from django.urls import path
@@ -4504,6 +4635,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVoice } from "@/hooks/useVoice";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
+import { getAccess } from "@/lib/auth";               // ← NEW (guard for logged-out)
 
 /* ─────────────────────────── types ─────────────────────────── */
 export type Msg = { role: "user" | "assistant"; content: string };
@@ -4644,7 +4776,8 @@ function splitSentences(chunk: string, final: boolean): [string, string] {
 export function useVoiceAgent() {
   const qc = useQueryClient();
 
-  /* ---------- history ---------- */
+  /* ---------- fetch chat history only when logged-in ---------- */
+  const hasToken = !!getAccess();
   const { data: serverHistory = [] } = useQuery({
     queryKey: ["chat", "profile-builder"],
     queryFn: async () => {
@@ -4653,9 +4786,18 @@ export function useVoiceAgent() {
       return res.json() as Promise<Msg[]>;
     },
     staleTime: Infinity,
+    enabled: hasToken,
   });
+
+  /* ---------- local history (avoid infinite loop) ---------- */
   const [history, setHistory] = useState<Msg[]>(serverHistory);
-  useEffect(() => setHistory(serverHistory), [serverHistory]);
+  useEffect(() => {
+    // copy server history only the FIRST time we load it
+    if (history.length === 0 && serverHistory.length > 0) {
+      setHistory(serverHistory);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverHistory]); // safe – runs once unless serverHistory changes while local is empty
 
   /* ---------- mic / STT ---------- */
   const { isRecording, start, stop, transcript, sttLoading, sttError } =
@@ -4664,14 +4806,14 @@ export function useVoiceAgent() {
   /* ---------- speaker ---------- */
   const speakSentence = useSentenceSpeaker();
 
-  /* ---------- UI state ---------- */
+  /* ---------- UI / stream state ---------- */
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  /* ---------- buffers ---------- */
-  const streamBuf = useRef("");   // accumulating tokens for current chunk
-  const tailBuf = useRef("");     // current partial sentence
-  const fullRef = useRef("");     // text already committed to UI
+  /* ---------- streaming buffers ---------- */
+  const streamBuf = useRef("");
+  const tailBuf = useRef("");
+  const fullRef = useRef("");
 
   function flush(final = false) {
     const chunk = tailBuf.current + streamBuf.current;
@@ -4681,14 +4823,14 @@ export function useVoiceAgent() {
       done
         .split(/(?<=[.!?]["')\]]?)\s+/)
         .forEach((s) => speakSentence(s.trim()));
-      fullRef.current += done;        // keep spoken sentences in UI
+      fullRef.current += done;
     }
 
     tailBuf.current = rest;
     streamBuf.current = "";
   }
 
-  /* ---------- send ---------- */
+  /* ---------- send message ---------- */
   async function sendMessage(userMsg: string) {
     setSending(true);
     setError(null);
@@ -4717,16 +4859,15 @@ export function useVoiceAgent() {
         return copy;
       });
 
-      flush();        // may move sentences from buffers → fullRef
+      flush();
     };
 
     try {
       const done = await streamAgent(userMsg, onDelta);
 
-      flush(true);    // commit any remainder
+      flush(true);
       const finalText = fullRef.current + tailBuf.current;
 
-      /* 🔒 lock final message into history & cache */
       setHistory((h) => {
         const copy = [...h];
         copy[copy.length - 1] = { role: "assistant", content: finalText || " " };

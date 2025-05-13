@@ -2,10 +2,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVoice } from "@/hooks/useVoice";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
-import { getAccess } from "@/lib/auth";               // ← NEW (guard for logged-out)
+import { getAccess } from "@/lib/auth";
 
 /* ─────────────────────────── types ─────────────────────────── */
 export type Msg = { role: "user" | "assistant"; content: string };
@@ -13,13 +14,31 @@ type DonePayload = {
   delta: "";
   done: true;
   audio_base64?: string;
+  /* present when the FunctionTool returns the snapshot inline */
+  profile?: Record<string, unknown>;
+  /* present when the backend only sends a timestamp */
   profile_updated_at?: string;
 };
+
+/* ─────────────────────── debounce helper ────────────────────── */
+function debounce<Args extends unknown[]>(
+  fn: (...args: Args) => void,
+  ms: number,
+) {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  return (...args: Args): void => {
+    if (timer) return; // ignore rapid repeats
+    fn(...args);
+    timer = setTimeout(() => {
+      timer = null;
+    }, ms);
+  };
+}
 
 /* ─────────────────────── stream helper ─────────────────────── */
 async function streamAgent(
   message: string,
-  onDelta: (tok: string) => void
+  onDelta: (tok: string) => void,
 ): Promise<DonePayload> {
   const res = await fetchWithAuth("/api/agent/profile-builder", {
     method: "POST",
@@ -48,7 +67,7 @@ async function streamAgent(
       try {
         payload = JSON.parse(line);
       } catch {
-        /* wait for more bytes */
+        // not a full JSON line yet
         buf = line + "\n" + buf;
         break parseLoop;
       }
@@ -93,8 +112,8 @@ function useSentenceSpeaker() {
         (au) =>
           new Promise<void>((resolve) => {
             au.addEventListener("ended", () => resolve(), { once: true });
-            au.play().catch(() => resolve());
-          })
+            au.play().catch(() => resolve()); // ignore autoplay-block
+          }),
       )
       .finally(() => {
         playing.current = false;
@@ -145,9 +164,12 @@ function splitSentences(chunk: string, final: boolean): [string, string] {
 /* ─────────────────────────── main hook ─────────────────────────── */
 export function useVoiceAgent() {
   const qc = useQueryClient();
+  const router = useRouter();
 
-  /* ---------- fetch chat history only when logged-in ---------- */
-  const hasToken = !!getAccess();
+  /* ----- navigation debouncer ----- */
+  const navigate = debounce((path: string) => router.push(path), 1000);
+
+  /* ---------- fetch chat history ---------- */
   const { data: serverHistory = [] } = useQuery({
     queryKey: ["chat", "profile-builder"],
     queryFn: async () => {
@@ -156,24 +178,23 @@ export function useVoiceAgent() {
       return res.json() as Promise<Msg[]>;
     },
     staleTime: Infinity,
-    enabled: hasToken,
+    enabled: !!getAccess(),
   });
 
-  /* ---------- local history (avoid infinite loop) ---------- */
+  /* ---------- local history ---------- */
   const [history, setHistory] = useState<Msg[]>(serverHistory);
   useEffect(() => {
-    // copy server history only the FIRST time we load it
     if (history.length === 0 && serverHistory.length > 0) {
       setHistory(serverHistory);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverHistory]); // safe – runs once unless serverHistory changes while local is empty
+  }, [serverHistory]);
 
   /* ---------- mic / STT ---------- */
   const { isRecording, start, stop, transcript, sttLoading, sttError } =
     useVoice();
 
-  /* ---------- speaker ---------- */
+  /* ---------- sentence TTS ---------- */
   const speakSentence = useSentenceSpeaker();
 
   /* ---------- UI / stream state ---------- */
@@ -215,9 +236,29 @@ export function useVoiceAgent() {
     ]);
 
     const onDelta = (tok: string) => {
+      /* ----- navigation tag? ----- */
+      const trim = tok.trim();
+      if (trim.startsWith("{") && trim.endsWith("}")) {
+        try {
+          const obj = JSON.parse(trim);
+          if (
+            obj &&
+            typeof obj === "object" &&
+            typeof obj.navigate === "string" &&
+            Object.keys(obj).length === 1
+          ) {
+            navigate(obj.navigate);
+            return; // do not append to transcript
+          }
+        } catch {
+          /* fall through */
+        }
+      }
+
+      /* ----- normal text flow ----- */
       const merged = mergeOverlap(tailBuf.current + streamBuf.current, tok);
       streamBuf.current += merged.slice(
-        (tailBuf.current + streamBuf.current).length
+        (tailBuf.current + streamBuf.current).length,
       );
 
       setHistory((h) => {
@@ -240,7 +281,10 @@ export function useVoiceAgent() {
 
       setHistory((h) => {
         const copy = [...h];
-        copy[copy.length - 1] = { role: "assistant", content: finalText || " " };
+        copy[copy.length - 1] = {
+          role: "assistant",
+          content: finalText || " ",
+        };
         return copy;
       });
       qc.setQueryData(["chat", "profile-builder"], (old: Msg[] = []) => [
@@ -249,8 +293,17 @@ export function useVoiceAgent() {
         { role: "assistant", content: finalText || " " },
       ]);
 
-      if (done.profile_updated_at) {
-        qc.invalidateQueries({ queryKey: ["profile", "me"] });
+      /* ----- live profile refresh ----- */
+      if (done.profile) {
+        qc.setQueryData<Record<string, unknown>>(
+          ["profile", "me"],
+          (draft) => ({ ...(draft ?? {}), ...done.profile! }),
+        );
+        window.dispatchEvent(new Event("profile-saved"));   // ✅ toast
+      } else if (done.profile_updated_at) {
+        // mark stale *and* re-fetch the active observers right away
+        await qc.refetchQueries({ queryKey: ["profile", "me"], exact: true });
+        window.dispatchEvent(new Event("profile-saved"));   // ✅ toast, too
       }
     } catch (err) {
       setError(err as Error);

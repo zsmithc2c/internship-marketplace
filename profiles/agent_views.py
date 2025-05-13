@@ -22,7 +22,7 @@ from pipeline_agents.profile_builder import build_profile_builder_agent
 from voice.views import _get_client
 
 from .models import AgentMessage
-from .serializers import AgentMessageSerializer
+from .serializers import AgentMessageSerializer, ProfileSerializer
 
 log = logging.getLogger(__name__)
 
@@ -51,7 +51,6 @@ def _maybe_call(attr):
 
 
 def extract_tool_schema(tool) -> Dict:
-    """Return an OpenAI-compatible JSON schema for any FunctionTool."""
     for name in (
         "openai_schema",
         "schema",
@@ -67,8 +66,7 @@ def extract_tool_schema(tool) -> Dict:
             if isinstance(obj, dict):
                 return obj
 
-    # Agents-SDK fall-backs
-    if hasattr(tool, "params_json_schema"):  # ≥ 0.0.18
+    if hasattr(tool, "params_json_schema"):
         return {
             "type": "function",
             "function": {
@@ -77,19 +75,16 @@ def extract_tool_schema(tool) -> Dict:
                 "parameters": tool.params_json_schema,
             },
         }
-    if hasattr(tool, "model_dump"):  # pydantic model
+    if hasattr(tool, "model_dump"):
         return tool.model_dump()
 
     raise AttributeError("Unable to locate schema on FunctionTool")
 
 
 async def _invoke_tool(tool, raw_args: Dict | str) -> str:
-    """
-    Call FunctionTool regardless of signature variant.
-    Accepts either a string payload_json or kwargs.
-    """
     fn = tool.on_invoke_tool
     sig = inspect.signature(fn)
+
     pos_params = [
         p
         for p in sig.parameters.values()
@@ -111,11 +106,8 @@ async def _invoke_tool(tool, raw_args: Dict | str) -> str:
             if isinstance(raw_args, str)
             else json.dumps(raw_args, separators=(",", ":"))
         )
-        if wants_ctx:
-            return await fn(None, payload_str)
-        return await fn(payload_str)
+        return await fn(None, payload_str) if wants_ctx else await fn(payload_str)
 
-    # kwargs style – make sure payload_json is present if expected
     if "payload_json" in sig.parameters and "payload_json" not in raw_args:
         raw_args = {"payload_json": json.dumps(raw_args, separators=(",", ":"))}
 
@@ -124,17 +116,10 @@ async def _invoke_tool(tool, raw_args: Dict | str) -> str:
 
 # ───────────────────────── main view ────────────────────────────
 class ProfileBuilderAgentView(APIView):
-    """
-    POST /api/agent/profile-builder/
-      Body : {"message": "..."}
-      ND-JSON stream → {"delta":"Hi","done":false} … {"delta":"","done":true}
-    """
-
     permission_classes = [permissions.IsAuthenticated]
     LOCK_TIMEOUT = 60
     CONTENT_TYPE = "application/x-ndjson"
 
-    # ───────────────────────── POST ──────────────────────────
     def post(self, request, *args, **kwargs):
         latest = (request.data.get("message") or "").strip()
         if not latest:
@@ -148,7 +133,6 @@ class ProfileBuilderAgentView(APIView):
                 status=429,
             )
 
-        # save user message
         AgentMessage.objects.create(user=user, role="user", content=latest)
 
         history = list(AgentMessage.objects.filter(user=user).order_by("created_at"))
@@ -160,7 +144,7 @@ class ProfileBuilderAgentView(APIView):
         tool_schemas = [extract_tool_schema(t) for t in meta.tools]
         tool_lookup = {t.name: t for t in meta.tools}
 
-        q: "queue.Queue[str | dict]" = queue.Queue()
+        q: queue.Queue[str | dict] = queue.Queue()
 
         # ─────────── background worker ───────────
         def worker() -> None:
@@ -168,7 +152,6 @@ class ProfileBuilderAgentView(APIView):
                 try:
                     msgs: List[Dict] = [system_msg, user_msg]
 
-                    # 1️⃣ First pass — streamed
                     stream1 = await client.chat.completions.create(
                         model="gpt-4o-mini",
                         messages=msgs,
@@ -176,8 +159,8 @@ class ProfileBuilderAgentView(APIView):
                         stream=True,
                     )
 
-                    collected_tokens: List[str] = []
-                    tc_frag: dict[int, dict] = {}  # fragments by tool index
+                    collected: List[str] = []
+                    tc_frag: dict[int, dict] = {}
 
                     async for chunk in stream1:
                         delta = chunk.choices[0].delta
@@ -188,33 +171,29 @@ class ProfileBuilderAgentView(APIView):
                                 entry = tc_frag.setdefault(
                                     idx, {"id": part.id, "name": None, "arguments": ""}
                                 )
-                                if getattr(part.function, "name", None):
+                                if part.function.name:
                                     entry["name"] = part.function.name
                                 if part.function.arguments:
                                     entry["arguments"] += part.function.arguments
-                            continue  # tool-call deltas aren’t sent to user
+                            continue
 
                         if delta.content:
-                            collected_tokens.append(delta.content)
+                            collected.append(delta.content)
                             q.put(delta.content)
 
-                    # Any tool calls?
                     if tc_frag:
-                        collected_tokens.clear()  # discard pre-tool text
+                        collected.clear()
                         tool_calls = [
-                            frag
-                            for idx, frag in sorted(tc_frag.items())
-                            if frag["name"] is not None
+                            frag for _, frag in sorted(tc_frag.items()) if frag["name"]
                         ]
 
-                        # assistant wrapper with calls
                         msgs.append(
                             {
                                 "role": "assistant",
                                 "tool_calls": [
                                     {
                                         "id": t["id"],
-                                        "type": "function",  # ← NEW
+                                        "type": "function",
                                         "function": {
                                             "name": t["name"],
                                             "arguments": t["arguments"],
@@ -226,31 +205,30 @@ class ProfileBuilderAgentView(APIView):
                             }
                         )
 
-                        # invoke each call
                         for t in tool_calls:
                             fn_name = t["name"]
                             arg_json = t["arguments"] or "{}"
-
                             try:
                                 kwargs = json.loads(arg_json)
                             except JSONDecodeError:
-                                log.warning(
-                                    "Bad tool-args JSON (%s): %s", fn_name, arg_json
-                                )
                                 kwargs = {"payload_json": arg_json.strip()}
 
                             result = await _invoke_tool(tool_lookup[fn_name], kwargs)
+
+                            # ── navigation helper → send as **string token**
+                            if fn_name == "navigate_to_v1" and isinstance(kwargs, dict):
+                                path = kwargs.get("path", "/")
+                                q.put(json.dumps({"navigate": path}))
 
                             msgs.append(
                                 {
                                     "role": "tool",
                                     "tool_call_id": t["id"],
-                                    "type": "function",  # ← NEW
+                                    "type": "function",
                                     "content": result,
                                 }
                             )
 
-                        # 2️⃣ Second pass — streamed reply
                         stream2 = await client.chat.completions.create(
                             model="gpt-4o",
                             messages=msgs,
@@ -260,11 +238,16 @@ class ProfileBuilderAgentView(APIView):
                         async for chunk in stream2:
                             tok = chunk.choices[0].delta.content or ""
                             if tok:
-                                collected_tokens.append(tok)
+                                collected.append(tok)
                                 q.put(tok)
 
-                    final_reply = "".join(collected_tokens)
-                    q.put({"__done__": True, "reply": final_reply})
+                    q.put(
+                        {
+                            "__done__": True,
+                            "reply": "".join(collected),
+                            "had_tool_calls": bool(tc_frag),
+                        }
+                    )
 
                 except Exception as exc:
                     log.exception("Agent worker failed: %s", exc)
@@ -276,20 +259,21 @@ class ProfileBuilderAgentView(APIView):
 
         threading.Thread(target=worker, daemon=True).start()
 
-        # ─────────── streaming HTTP response ───────────
+        # ─────────── foreground stream ───────────
         def event_stream() -> Generator[bytes, None, None]:
             while True:
                 item = q.get()
+
                 if isinstance(item, str):
                     yield json.dumps({"delta": item, "done": False}).encode() + b"\n"
                     continue
+
                 if "__error__" in item:
                     yield json.dumps({"error": item["__error__"]}).encode() + b"\n"
                     break
 
                 reply: str = item["reply"]
 
-                # optional TTS
                 audio_b64: Optional[str] = None
                 try:
                     speech = _get_client().audio.speech.create(
@@ -299,16 +283,24 @@ class ProfileBuilderAgentView(APIView):
                         response_format="mp3",
                     )
                     audio_b64 = base64.b64encode(speech.content).decode()
-                except Exception:
+                except Exception:  # pragma: no cover
                     pass
 
                 AgentMessage.objects.create(user=user, role="assistant", content=reply)
 
-                payload = {"delta": "", "done": True}
+                payload: Dict[str, object] = {"delta": "", "done": True}
+
+                if item.get("had_tool_calls"):
+                    user.refresh_from_db(fields=None)
+                    payload.update(
+                        {
+                            "profile_updated_at": user.profile.updated_at.isoformat(),
+                            "profile": ProfileSerializer(user.profile).data,
+                        }
+                    )
+
                 if audio_b64:
                     payload["audio_base64"] = audio_b64
-                if "profile_updated" in reply:
-                    payload["profile_updated_at"] = user.profile.updated_at.isoformat()
 
                 yield json.dumps(payload).encode() + b"\n"
                 break
