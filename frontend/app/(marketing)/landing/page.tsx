@@ -142,7 +142,7 @@ export default function Landing() {
             <div className="mt-10 flex flex-wrap justify-center gap-4">
               {/* SIGN-UP / CREATE ACCOUNT */}
               <Link
-                href={`/register?role=${role}`}
+                href="/signup"
                 className={cn(
                   buttonVariants({ variant: "default", size: "lg" }),
                   // Always visible on white

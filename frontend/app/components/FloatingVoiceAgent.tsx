@@ -3,29 +3,66 @@
 
 import { useState } from "react";
 import { Sheet, SheetContent, SheetHeader } from "@/components/ui/sheet";
-import { Mic } from "lucide-react";
+import { Mic, ChevronUp, Bot } from "lucide-react";
 import VoiceAgentChat from "./VoiceAgentChat";
+import { useVoiceAgentCtx } from "@/context/VoiceAgentContext";
+import { useAuth } from "@/hooks/useAuth";
+import { cn } from "@/lib/utils";
 
 export default function FloatingVoiceAgent() {
+  /* ── hooks must run unconditionally ── */
+  const { user } = useAuth();
+  const va = useVoiceAgentCtx();                // may be null when logged-out
   const [open, setOpen] = useState(false);
 
-  /* --- helpers --- */
-  const toggle = () => setOpen((o) => !o);
-  const openAndStart = () => setOpen(true);   // could trigger recording later
+  /* ── if no auth or ctx yet, render nothing ── */
+  if (!user || !va) return null;
+
+  const { isRecording, start, stop, sending } = va;
+
+  /* ---------- UI helpers ---------- */
+  const toggleSheet = () => setOpen((o) => !o);
+
+  /* ---------- bubble style ---------- */
+  const bubbleCls = cn(
+    "fixed bottom-6 right-6 z-50 grid size-16 place-items-center rounded-full text-white shadow-lg transition-all",
+    "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/50",
+    isRecording
+      ? "bg-red-600 animate-pulse" // mic held
+      : sending
+      ? "bg-primary/90 after:absolute after:inset-0 after:rounded-full after:bg-primary/70 after:animate-ping"
+      : "bg-primary hover:-translate-y-1 hover:shadow-xl" // idle
+  );
 
   return (
     <>
-      {/* Mic bubble */}
+      {/* small ↑ arrow to expand transcript */}
       <button
-        onClick={toggle}
-        onPointerDown={openAndStart}
-        className="fixed bottom-6 right-6 z-50 flex h-16 w-16 items-center justify-center rounded-full bg-primary text-white shadow-lg transition-all hover:-translate-y-1 hover:shadow-xl active:translate-y-0 active:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/50"
-        aria-label="Open voice assistant"
+        onClick={toggleSheet}
+        className="fixed bottom-[5.75rem] right-8 z-50 rounded-full bg-background/70 p-1 shadow-md backdrop-blur hover:shadow-lg"
+        aria-label={open ? "Hide transcript" : "Show transcript"}
       >
-        <Mic className="h-8 w-8" />
+        <ChevronUp
+          className={cn("h-5 w-5 transition-transform", open && "rotate-180")}
+        />
       </button>
 
-      {/* Slide-over chat */}
+      {/* mic bubble */}
+      <button
+        onPointerDown={start}
+        onPointerUp={stop}
+        onPointerCancel={stop}
+        className={bubbleCls}
+        aria-label="Hold to talk"
+      >
+        {sending && !isRecording ? (
+          <Bot className="h-7 w-7" />
+        ) : (
+          <Mic className="h-7 w-7" />
+        )}
+      </button>
+
+      {/* transcript slide-over */}
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="right" className="w-full max-w-lg p-0">
           <SheetHeader className="border-b p-4">

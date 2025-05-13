@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVoice } from "@/hooks/useVoice";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
+import { getAccess } from "@/lib/auth";               // ← NEW (guard for logged-out)
 
 /* ─────────────────────────── types ─────────────────────────── */
 export type Msg = { role: "user" | "assistant"; content: string };
@@ -145,7 +146,8 @@ function splitSentences(chunk: string, final: boolean): [string, string] {
 export function useVoiceAgent() {
   const qc = useQueryClient();
 
-  /* ---------- history ---------- */
+  /* ---------- fetch chat history only when logged-in ---------- */
+  const hasToken = !!getAccess();
   const { data: serverHistory = [] } = useQuery({
     queryKey: ["chat", "profile-builder"],
     queryFn: async () => {
@@ -154,9 +156,18 @@ export function useVoiceAgent() {
       return res.json() as Promise<Msg[]>;
     },
     staleTime: Infinity,
+    enabled: hasToken,
   });
+
+  /* ---------- local history (avoid infinite loop) ---------- */
   const [history, setHistory] = useState<Msg[]>(serverHistory);
-  useEffect(() => setHistory(serverHistory), [serverHistory]);
+  useEffect(() => {
+    // copy server history only the FIRST time we load it
+    if (history.length === 0 && serverHistory.length > 0) {
+      setHistory(serverHistory);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverHistory]); // safe – runs once unless serverHistory changes while local is empty
 
   /* ---------- mic / STT ---------- */
   const { isRecording, start, stop, transcript, sttLoading, sttError } =
@@ -165,14 +176,14 @@ export function useVoiceAgent() {
   /* ---------- speaker ---------- */
   const speakSentence = useSentenceSpeaker();
 
-  /* ---------- UI state ---------- */
+  /* ---------- UI / stream state ---------- */
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  /* ---------- buffers ---------- */
-  const streamBuf = useRef("");   // accumulating tokens for current chunk
-  const tailBuf = useRef("");     // current partial sentence
-  const fullRef = useRef("");     // text already committed to UI
+  /* ---------- streaming buffers ---------- */
+  const streamBuf = useRef("");
+  const tailBuf = useRef("");
+  const fullRef = useRef("");
 
   function flush(final = false) {
     const chunk = tailBuf.current + streamBuf.current;
@@ -182,14 +193,14 @@ export function useVoiceAgent() {
       done
         .split(/(?<=[.!?]["')\]]?)\s+/)
         .forEach((s) => speakSentence(s.trim()));
-      fullRef.current += done;        // keep spoken sentences in UI
+      fullRef.current += done;
     }
 
     tailBuf.current = rest;
     streamBuf.current = "";
   }
 
-  /* ---------- send ---------- */
+  /* ---------- send message ---------- */
   async function sendMessage(userMsg: string) {
     setSending(true);
     setError(null);
@@ -218,16 +229,15 @@ export function useVoiceAgent() {
         return copy;
       });
 
-      flush();        // may move sentences from buffers → fullRef
+      flush();
     };
 
     try {
       const done = await streamAgent(userMsg, onDelta);
 
-      flush(true);    // commit any remainder
+      flush(true);
       const finalText = fullRef.current + tailBuf.current;
 
-      /* 🔒 lock final message into history & cache */
       setHistory((h) => {
         const copy = [...h];
         copy[copy.length - 1] = { role: "assistant", content: finalText || " " };

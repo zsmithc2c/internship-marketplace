@@ -1,3 +1,4 @@
+// frontend/app/page.tsx
 "use client";
 
 import { useEffect } from "react";
@@ -14,7 +15,7 @@ export default function Index() {
     if (user) {
       router.replace("/dashboard");     // already logged in
     } else {
-      router.replace("/login");         // not logged in
+      router.replace("/landing");       // not logged in → public marketing
     }
   }, [isLoading, user, router]);
 
