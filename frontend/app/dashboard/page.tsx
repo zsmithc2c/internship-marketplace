@@ -1,167 +1,128 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { jwtDecode } from "jwt-decode";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
+  Card, CardContent, CardHeader, CardTitle,
 } from "@/components/ui/card";
 import {
-  Loader2,
-  User,
-  Mic,
-  GraduationCap,
-  Briefcase,
+  User, Briefcase, GraduationCap,
+  LogOut, Sparkles,
 } from "lucide-react";
 import { useProfile } from "@/hooks/useProfile";
 
-interface JwtPayload {
-  role: string;
-  exp: number;
-  iat: number;
-}
+interface JwtPayload { role: string; exp: number; iat: number }
 
 export default function Dashboard() {
   const router = useRouter();
   const [role, setRole] = useState<string | null>(null);
 
-  // ─────────── Auth guard + role extraction ───────────
   useEffect(() => {
-    const token = localStorage.getItem("access");
-    if (!token) {
-      router.replace("/login");
-      return;
-    }
-    try {
-      const decoded = jwtDecode<JwtPayload>(token);
-      setRole(decoded.role);
-    } catch {
-      router.replace("/login");
-    }
+    const t = localStorage.getItem("access");
+    if (!t) return router.replace("/login");
+    try { setRole(jwtDecode<JwtPayload>(t).role); }
+    catch { router.replace("/login"); }
   }, [router]);
 
-  // ─────────── Profile query (always call hooks at top level) ───────────
-  const {
-    data: profile,
-    isLoading: profileLoading,
-    error: profileError,
-  } = useProfile();
+  const { data: profile, isLoading } = useProfile();
 
-  // ─────────── Loading screen while determining role ───────────
-  if (!role) {
-    return (
-      <main className="flex min-h-screen items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin" />
-      </main>
-    );
-  }
-
-  // ─────────── Helpers ───────────
-  function handleLogout() {
-    localStorage.removeItem("access");
-    localStorage.removeItem("refresh");
-    router.push("/login");
-  }
-
-  const cards = [
-    {
-      icon: <User className="h-6 w-6" />,
-      title: "My Account",
-      desc: "Manage your login & email settings.",
-      href: "/account",
-    },
+  /* —— cards to surface —— */
+  const tiles = [
+    { icon: <Sparkles className="h-6 w-6" />, title: "Pipeline Agent",
+      desc: "Ask anything – your AI mentor is listening.",
+      href: "/profile/builder" },
+    { icon: <User className="h-6 w-6" />, title: "My Account",
+      desc: "Manage credentials & notifications.", href: "/account" },
   ];
 
   if (role === "INTERN") {
-    cards.push(
-      {
-        icon: <Mic className="h-6 w-6" />,
-        title: "Pipeline Agent",
-        desc: "Interact with our Pipeline AI Agent to get started",
-        href: "/profile/builder",
-      },
-      {
-        icon: <GraduationCap className="h-6 w-6" />,
-        title: "My Profile",
-        desc: "View how employers will see you.",
-        href: "/profile",
-      },
-      {
-        icon: <Briefcase className="h-6 w-6" />,
-        title: "Internships",
-        desc: "Browse and apply to openings.",
-        href: "/internships",
-      }
+    tiles.push(
+      { icon: <GraduationCap className="h-6 w-6" />, title: "My Profile",
+        desc: "See what employers see.", href: "/profile" },
+      { icon: <Briefcase className="h-6 w-6" />, title: "Internships",
+        desc: "Browse & apply in seconds.", href: "/internships" },
     );
   }
 
-  // ─────────── Render ───────────
+  /* —— render —— */
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
-      <div className="mx-auto max-w-6xl space-y-10">
-        {/* Header */}
-        <header className="flex items-center justify-between gap-4">
-          <h1 className="text-3xl font-semibold tracking-tight">
-            Welcome back, <span className="capitalize">{role.toLowerCase()}</span>!
+    <main className="pt-14"> {/* makes room for fixed nav */}
+      {/* hero */}
+      <section className="relative isolate overflow-hidden bg-gradient-to-br
+                           from-indigo-500 via-violet-600 to-fuchsia-600">
+        <div className="absolute inset-0 opacity-30 mix-blend-soft-light
+                        [mask-image:radial-gradient(transparent_40%,black)]" />
+        <div className="mx-auto flex max-w-5xl flex-col items-center gap-4 px-6 py-20 text-center">
+          <h1 className="text-4xl/tight font-extrabold tracking-tight text-white drop-shadow-sm">
+            Welcome back{role ? `, ${role.toLowerCase()}!` : "!"}
           </h1>
+          <p className="max-w-lg text-white/90">
+            Pipeline pairs top early-talent with curated internships
+            and an always-on AI career coach.
+          </p>
           <button
-            onClick={handleLogout}
-            className="rounded bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700"
+            onClick={() => {
+              localStorage.removeItem("access");
+              localStorage.removeItem("refresh");
+              router.push("/login");
+            }}
+            className="group mt-4 inline-flex items-center gap-1 rounded-md
+                       bg-white/10 px-4 py-2 text-sm font-medium text-white
+                       ring-1 ring-inset ring-white/20 backdrop-blur-lg
+                       transition hover:bg-white/20"
           >
-            Log out
+            <LogOut className="h-4 w-4 stroke-[2.5]" /> Log out
           </button>
-        </header>
+        </div>
+      </section>
 
-        {/* Quick-link cards */}
-        <section className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {cards.map((c) => (
-            <Link key={c.href} href={c.href} className="group">
-              <Card className="h-full transition-shadow hover:shadow-lg">
+      {/* quick-links */}
+      <section className="-mt-16 bg-gray-50/60 pb-20 pt-24">
+        <div className="mx-auto grid max-w-6xl gap-6 px-6 sm:grid-cols-2 lg:grid-cols-3">
+          {tiles.map(({ href, icon, title, desc }) => (
+            <Link key={href} href={href} className="group">
+              <Card className="h-full rounded-2xl border border-transparent bg-white/90
+                                shadow-sm ring-1 ring-gray-200 transition
+                                hover:-translate-y-1 hover:border-primary/30 hover:shadow-lg">
                 <CardHeader className="flex flex-row items-center gap-3 pb-0">
-                  <div className="rounded-md bg-gray-100 p-3 text-gray-900 transition-colors group-hover:bg-primary group-hover:text-white">
-                    {c.icon}
+                  <div className="grid size-10 place-items-center rounded-lg
+                                   bg-primary/10 text-primary transition
+                                   group-hover:bg-primary group-hover:text-white">
+                    {icon}
                   </div>
-                  <CardTitle className="text-lg">{c.title}</CardTitle>
+                  <CardTitle className="text-lg">{title}</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-3 text-sm text-muted-foreground">
-                  {c.desc}
+                  {desc}
                 </CardContent>
               </Card>
             </Link>
           ))}
-        </section>
+        </div>
 
-        {/* Profile status (interns only) */}
+        {/* profile freshness banner */}
         {role === "INTERN" && (
-          <section>
-            <Card className="border-l-4 border-primary">
-              <CardContent className="space-y-2 py-4">
-                {profileLoading && (
-                  <p className="flex items-center gap-1 text-sm">
-                    <Loader2 className="h-4 w-4 animate-spin" /> Checking profile …
-                  </p>
-                )}
-                {profileError && (
-                  <p className="text-sm text-red-700">
-                    {(profileError as Error).message}
-                  </p>
-                )}
-                {profile && (
-                  <p className="text-sm">
-                    Profile last updated&nbsp;
-                    {new Date(profile.updated_at).toLocaleDateString()} – keep
-                    refining via the Profile Builder!
-                  </p>
+          <div className="mx-auto mt-10 max-w-6xl px-6">
+            <Card className="rounded-xl border-l-4 border-primary bg-white/90 shadow-sm">
+              <CardContent className="flex items-center gap-2 py-4 text-sm">
+                {isLoading ? (
+                  <>Checking profile…</>
+                ) : profile ? (
+                  <>
+                    Your profile was last updated&nbsp;
+                    {new Date(profile.updated_at).toLocaleDateString()} – speak
+                    to the mic-bubble to keep refining!
+                  </>
+                ) : (
+                  <>No profile data found.</>
                 )}
               </CardContent>
             </Card>
-          </section>
+          </div>
         )}
-      </div>
+      </section>
     </main>
   );
 }

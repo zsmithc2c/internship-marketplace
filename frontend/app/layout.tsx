@@ -1,8 +1,10 @@
+// frontend/app/layout.tsx
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Providers from "./providers";
 import NavBar from "./components/NavBar";
+import FloatingVoiceAgent from "./components/FloatingVoiceAgent";   // ← NEW
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -32,6 +34,8 @@ export default function RootLayout({
         <Providers>
           <NavBar />
           {children}
+          {/* floating mic widget lives on every page */}
+          <FloatingVoiceAgent />
         </Providers>
       </body>
     </html>

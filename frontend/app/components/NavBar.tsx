@@ -2,67 +2,43 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { cn } from "@/lib/utils";
 
-const navLinks = [
-  { href: "/dashboard",   label: "Dashboard" },
-  { href: "/account",     label: "Account"   },
-  { href: "/profile",     label: "Profile"   },
-  { href: "/profile/builder",  label: "Pipeline Agent" },
+const links = [
+  { href: "/dashboard", label: "Dashboard" },
+  { href: "/account",    label: "Account"   },
+  { href: "/profile",   label: "Profile"   },
   { href: "/internships", label: "Internships" },
 ];
 
 export default function NavBar() {
-  const pathname = usePathname();
+  const path = usePathname();
 
   return (
-    <header className="sticky top-0 z-20 bg-gray-900 shadow-lg">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
-        {/* --- left links --- */}
-        <nav className="flex items-center gap-8">
-          {navLinks.slice(0, 2).map(({ href, label }) => (
-            <NavItem key={href} href={href} label={label} active={pathname === href} />
-          ))}
-        </nav>
+    <header className="fixed inset-x-0 top-0 z-50 flex h-14 items-center justify-between
+                        gap-2 rounded-b-xl border-b border-white/10 bg-neutral-900/60
+                        px-6 shadow-sm backdrop-blur-md transition-colors">
+      {/* logo / brand */}
+      <Link href="/dashboard" className="text-xl font-semibold tracking-tight text-white">Pipeline</Link>
 
-        {/* --- brand --- */}
-        <Link
-          href="/dashboard"
-          className="select-none text-xl font-semibold tracking-wide text-white"
-        >
-          Pipeline
-        </Link>
-
-        {/* --- right links --- */}
-        <nav className="flex items-center gap-8">
-          {navLinks.slice(2).map(({ href, label }) => (
-            <NavItem key={href} href={href} label={label} active={pathname === href} />
-          ))}
-        </nav>
-      </div>
+      {/* links */}
+      <nav className="hidden md:flex items-center gap-4 text-sm font-medium text-neutral-200">
+        {links.map(({ href, label }) => (
+          <Link
+            key={href}
+            href={href}
+            className={cn(
+              "relative px-2 py-1 transition-colors hover:text-white",
+              path.startsWith(href) && "text-white"
+            )}
+          >
+            {label}
+            {path.startsWith(href) && (
+              <span className="absolute inset-x-1 -bottom-0.5 h-0.5 rounded bg-primary" />
+            )}
+          </Link>
+        ))}
+      </nav>
     </header>
-  );
-}
-
-/* --------- helper ---------- */
-function NavItem({
-  href,
-  label,
-  active,
-}: {
-  href: string;
-  label: string;
-  active: boolean;
-}) {
-  return (
-    <Link
-      href={href}
-      className={`text-sm font-medium transition-colors ${
-        active
-          ? "text-white border-b-2 border-white pb-1"
-          : "text-gray-300 hover:text-white"
-      }`}
-    >
-      {label}
-    </Link>
   );
 }
