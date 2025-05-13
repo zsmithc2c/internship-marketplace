@@ -2,11 +2,11 @@
 "use client";
 
 import { useVoiceAgent } from "@/hooks/useVoiceAgent";
-import { useMemo } from "react";
+import { useMemo, useRef, useEffect } from "react";
 import { Mic, Loader2 } from "lucide-react";
 
 /* -------------------------------------------------------------------------- */
-/*                                Sub‑component                               */
+/*                                Sub-component                               */
 /* -------------------------------------------------------------------------- */
 function MicOnlyChat() {
   const {
@@ -20,9 +20,16 @@ function MicOnlyChat() {
     error,
   } = useVoiceAgent();
 
-  /* memoised reversed history (latest at bottom in scroll order) */
+  /* keep order oldest→newest so newest is at bottom */
   const orderedHistory = useMemo(() => [...history], [history]);
 
+  /* ───────── auto-scroll while streaming ───────── */
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [orderedHistory.length, sending]);
+
+  /* ---------------------------------------------------------------------- */
   return (
     <div className="flex flex-col items-center">
       {/* ——— MIC BUTTON ——— */}
@@ -82,6 +89,9 @@ function MicOnlyChat() {
               {error.message}
             </p>
           )}
+
+          {/* invisible anchor for scrollIntoView */}
+          <div ref={bottomRef} />
         </div>
       </details>
     </div>

@@ -5,8 +5,10 @@ import asyncio
 import base64
 import inspect
 import json
+import logging
 import queue
 import threading
+from json import JSONDecodeError
 from typing import Dict, Generator, List, Optional
 
 from django.core.cache import cache
@@ -21,6 +23,8 @@ from voice.views import _get_client
 
 from .models import AgentMessage
 from .serializers import AgentMessageSerializer
+
+log = logging.getLogger(__name__)
 
 
 # ───────────────────────── helpers ──────────────────────────────
@@ -79,7 +83,7 @@ def extract_tool_schema(tool) -> Dict:
     raise AttributeError("Unable to locate schema on FunctionTool")
 
 
-async def _invoke_tool(tool, raw_args: Dict) -> str:
+async def _invoke_tool(tool, raw_args: Dict | str) -> str:
     """
     Call FunctionTool regardless of signature variant.
     Accepts either a string payload_json or kwargs.
@@ -123,7 +127,7 @@ class ProfileBuilderAgentView(APIView):
     """
     POST /api/agent/profile-builder/
       Body : {"message": "..."}
-      ND-JSON stream   →   {"delta":"Hi", "done":false} … {"delta":"", "done":true}
+      ND-JSON stream → {"delta":"Hi","done":false} … {"delta":"","done":true}
     """
 
     permission_classes = [permissions.IsAuthenticated]
@@ -134,23 +138,19 @@ class ProfileBuilderAgentView(APIView):
     def post(self, request, *args, **kwargs):
         latest = (request.data.get("message") or "").strip()
         if not latest:
-            return Response(
-                {"detail": "Missing 'message' field"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"detail": "Missing 'message' field"}, status=400)
 
         user = request.user
         lock_key = f"profile-builder-lock-{user.id}"
         if not cache.add(lock_key, True, self.LOCK_TIMEOUT):
             return Response(
                 {"detail": "Agent is already generating a reply, please wait."},
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
+                status=429,
             )
 
-        # persist user message
+        # save user message
         AgentMessage.objects.create(user=user, role="user", content=latest)
 
-        # conversation context
         history = list(AgentMessage.objects.filter(user=user).order_by("created_at"))
         prompt = make_prompt(history, latest)
         meta = build_profile_builder_agent(user_email=user.email)
@@ -168,70 +168,93 @@ class ProfileBuilderAgentView(APIView):
                 try:
                     msgs: List[Dict] = [system_msg, user_msg]
 
-                    # 1️⃣  **First pass – STREAMED**
+                    # 1️⃣ First pass — streamed
                     stream1 = await client.chat.completions.create(
-                        model="gpt-3.5-turbo-0125",
+                        model="gpt-4o-mini",
                         messages=msgs,
                         tools=tool_schemas,
-                        stream=True,  # ←-- changed from False
+                        stream=True,
                     )
 
                     collected_tokens: List[str] = []
-                    tool_calls_buffer: list = []
+                    tc_frag: dict[int, dict] = {}  # fragments by tool index
 
                     async for chunk in stream1:
                         delta = chunk.choices[0].delta
 
-                        # ---- tool call path --------------------------------
                         if getattr(delta, "tool_calls", None):
-                            tool_calls_buffer.extend(delta.tool_calls)
-                            # No tokens should have been sent before a tool call,
-                            # so we DON'T push anything to the queue here.
-                            continue
+                            for part in delta.tool_calls:
+                                idx = part.index
+                                entry = tc_frag.setdefault(
+                                    idx, {"id": part.id, "name": None, "arguments": ""}
+                                )
+                                if getattr(part.function, "name", None):
+                                    entry["name"] = part.function.name
+                                if part.function.arguments:
+                                    entry["arguments"] += part.function.arguments
+                            continue  # tool-call deltas aren’t sent to user
 
-                        # ---- normal content path ---------------------------
                         if delta.content:
-                            text = delta.content
-                            collected_tokens.append(text)
-                            q.put(text)
+                            collected_tokens.append(delta.content)
+                            q.put(delta.content)
 
-                    # Did the model decide to invoke a tool?
-                    if tool_calls_buffer:
-                        # Discard any partial assistant text (should be none).
-                        collected_tokens = []
+                    # Any tool calls?
+                    if tc_frag:
+                        collected_tokens.clear()  # discard pre-tool text
+                        tool_calls = [
+                            frag
+                            for idx, frag in sorted(tc_frag.items())
+                            if frag["name"] is not None
+                        ]
 
-                        # wrap the tool-call “assistant” message
+                        # assistant wrapper with calls
                         msgs.append(
                             {
                                 "role": "assistant",
                                 "tool_calls": [
-                                    tc.model_dump() for tc in tool_calls_buffer
+                                    {
+                                        "id": t["id"],
+                                        "type": "function",  # ← NEW
+                                        "function": {
+                                            "name": t["name"],
+                                            "arguments": t["arguments"],
+                                        },
+                                    }
+                                    for t in tool_calls
                                 ],
                                 "content": None,
                             }
                         )
 
-                        # Execute each tool synchronously
-                        for tc in tool_calls_buffer:
-                            fn_name = tc.function.name
-                            arg_json = tc.function.arguments or "{}"
-                            kwargs = json.loads(arg_json)
+                        # invoke each call
+                        for t in tool_calls:
+                            fn_name = t["name"]
+                            arg_json = t["arguments"] or "{}"
+
+                            try:
+                                kwargs = json.loads(arg_json)
+                            except JSONDecodeError:
+                                log.warning(
+                                    "Bad tool-args JSON (%s): %s", fn_name, arg_json
+                                )
+                                kwargs = {"payload_json": arg_json.strip()}
 
                             result = await _invoke_tool(tool_lookup[fn_name], kwargs)
 
                             msgs.append(
                                 {
                                     "role": "tool",
-                                    "tool_call_id": tc.id,
+                                    "tool_call_id": t["id"],
+                                    "type": "function",  # ← NEW
                                     "content": result,
                                 }
                             )
 
-                        # 2️⃣  **Second pass – final assistant stream**
+                        # 2️⃣ Second pass — streamed reply
                         stream2 = await client.chat.completions.create(
                             model="gpt-4o",
                             messages=msgs,
-                            stream=False,
+                            stream=True,
                         )
 
                         async for chunk in stream2:
@@ -241,11 +264,10 @@ class ProfileBuilderAgentView(APIView):
                                 q.put(tok)
 
                     final_reply = "".join(collected_tokens)
-
-                    # signal end
                     q.put({"__done__": True, "reply": final_reply})
 
                 except Exception as exc:
+                    log.exception("Agent worker failed: %s", exc)
                     q.put({"__error__": str(exc)})
                 finally:
                     cache.delete(lock_key)
@@ -254,23 +276,20 @@ class ProfileBuilderAgentView(APIView):
 
         threading.Thread(target=worker, daemon=True).start()
 
-        # ─────────── Streaming HTTP response ───────────
+        # ─────────── streaming HTTP response ───────────
         def event_stream() -> Generator[bytes, None, None]:
             while True:
                 item = q.get()
-                if isinstance(item, str):  # incremental token
+                if isinstance(item, str):
                     yield json.dumps({"delta": item, "done": False}).encode() + b"\n"
                     continue
-
-                # error sentinel
                 if "__error__" in item:
                     yield json.dumps({"error": item["__error__"]}).encode() + b"\n"
                     break
 
-                # done sentinel
                 reply: str = item["reply"]
 
-                # optional TTS (non-blocking)
+                # optional TTS
                 audio_b64: Optional[str] = None
                 try:
                     speech = _get_client().audio.speech.create(
@@ -283,7 +302,6 @@ class ProfileBuilderAgentView(APIView):
                 except Exception:
                     pass
 
-                # persist assistant message
                 AgentMessage.objects.create(user=user, role="assistant", content=reply)
 
                 payload = {"delta": "", "done": True}
@@ -303,5 +321,12 @@ class AgentHistoryView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        qs = AgentMessage.objects.filter(user=request.user).order_by("created_at")
-        return Response(AgentMessageSerializer(qs, many=True).data)
+        try:
+            qs = AgentMessage.objects.filter(user=request.user).order_by("created_at")
+            return Response(AgentMessageSerializer(qs, many=True).data)
+        except Exception as exc:
+            log.exception("History endpoint failed for %s: %s", request.user, exc)
+            return Response(
+                {"detail": "Unable to load chat history."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )

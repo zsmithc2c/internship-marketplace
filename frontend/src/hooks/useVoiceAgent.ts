@@ -37,18 +37,17 @@ async function streamAgent(
     if (value) buf += dec.decode(value, { stream: true });
 
     /* ── parse complete lines ── */
-    let idx;
+    let idx: number;
     parseLoop: while ((idx = buf.indexOf("\n")) >= 0) {
       const line = buf.slice(0, idx).trim();
       buf = buf.slice(idx + 1);
       if (!line) continue;
 
-      /* guard: only parse when we have a *complete* JSON object */
       let payload: { delta?: string; done: boolean } & Partial<DonePayload>;
       try {
         payload = JSON.parse(line);
       } catch {
-        /* not yet complete → push fragment back & wait for more bytes */
+        /* wait for more bytes */
         buf = line + "\n" + buf;
         break parseLoop;
       }
@@ -64,7 +63,6 @@ async function streamAgent(
     if (done) break;
   }
 
-  /* ── fallback if stream closed without explicit “done” ── */
   if (sawDelta) return { delta: "", done: true };
   throw new Error("stream ended unexpectedly");
 }
@@ -73,9 +71,7 @@ async function streamAgent(
 function mergeOverlap(prev = "", next = ""): string {
   const max = Math.min(prev.length, next.length);
   for (let n = max; n > 0; n--) {
-    if (prev.slice(-n) === next.slice(0, n)) {
-      return prev + next.slice(n);
-    }
+    if (prev.slice(-n) === next.slice(0, n)) return prev + next.slice(n);
   }
   return prev + next;
 }
@@ -85,7 +81,7 @@ function useSentenceSpeaker() {
   const queue = useRef<Promise<HTMLAudioElement>[]>([]);
   const playing = useRef(false);
   const inflight = useRef(0);
-  const MAX_PARALLEL = 1;
+  const MAX_PARALLEL = 3;
 
   const maybePlayNext = () => {
     if (playing.current || !queue.current.length) return;
@@ -163,14 +159,8 @@ export function useVoiceAgent() {
   useEffect(() => setHistory(serverHistory), [serverHistory]);
 
   /* ---------- mic / STT ---------- */
-  const {
-    isRecording,
-    start,
-    stop,
-    transcript,
-    sttLoading,
-    sttError,
-  } = useVoice();
+  const { isRecording, start, stop, transcript, sttLoading, sttError } =
+    useVoice();
 
   /* ---------- speaker ---------- */
   const speakSentence = useSentenceSpeaker();
@@ -180,16 +170,21 @@ export function useVoiceAgent() {
   const [error, setError] = useState<Error | null>(null);
 
   /* ---------- buffers ---------- */
-  const streamBuf = useRef("");
-  const tailBuf = useRef("");
+  const streamBuf = useRef("");   // accumulating tokens for current chunk
+  const tailBuf = useRef("");     // current partial sentence
+  const fullRef = useRef("");     // text already committed to UI
 
   function flush(final = false) {
-    const [done, rest] = splitSentences(tailBuf.current + streamBuf.current, final);
+    const chunk = tailBuf.current + streamBuf.current;
+    const [done, rest] = splitSentences(chunk, final);
+
     if (done) {
       done
         .split(/(?<=[.!?]["')\]]?)\s+/)
         .forEach((s) => speakSentence(s.trim()));
+      fullRef.current += done;        // keep spoken sentences in UI
     }
+
     tailBuf.current = rest;
     streamBuf.current = "";
   }
@@ -200,6 +195,7 @@ export function useVoiceAgent() {
     setError(null);
     streamBuf.current = "";
     tailBuf.current = "";
+    fullRef.current = "";
 
     setHistory((h) => [
       ...h,
@@ -209,33 +205,43 @@ export function useVoiceAgent() {
 
     const onDelta = (tok: string) => {
       const merged = mergeOverlap(tailBuf.current + streamBuf.current, tok);
-      streamBuf.current += merged.slice((tailBuf.current + streamBuf.current).length);
+      streamBuf.current += merged.slice(
+        (tailBuf.current + streamBuf.current).length
+      );
 
       setHistory((h) => {
         const copy = [...h];
         copy[copy.length - 1] = {
           role: "assistant",
-          content: tailBuf.current + streamBuf.current,
+          content: fullRef.current + tailBuf.current + streamBuf.current,
         };
         return copy;
       });
 
-      flush();
+      flush();        // may move sentences from buffers → fullRef
     };
 
     try {
       const done = await streamAgent(userMsg, onDelta);
-      flush(true);
+
+      flush(true);    // commit any remainder
+      const finalText = fullRef.current + tailBuf.current;
+
+      /* 🔒 lock final message into history & cache */
+      setHistory((h) => {
+        const copy = [...h];
+        copy[copy.length - 1] = { role: "assistant", content: finalText || " " };
+        return copy;
+      });
+      qc.setQueryData(["chat", "profile-builder"], (old: Msg[] = []) => [
+        ...old,
+        { role: "user", content: userMsg },
+        { role: "assistant", content: finalText || " " },
+      ]);
 
       if (done.profile_updated_at) {
         qc.invalidateQueries({ queryKey: ["profile", "me"] });
       }
-
-      qc.setQueryData(["chat", "profile-builder"], (old: Msg[] = []) => [
-        ...old,
-        { role: "user", content: userMsg },
-        { role: "assistant", content: tailBuf.current || " " },
-      ]);
     } catch (err) {
       setError(err as Error);
       setHistory((h) => h.slice(0, -1));
