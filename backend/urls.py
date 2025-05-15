@@ -6,10 +6,14 @@ Routes exposed:
 • Admin
 • Auth (accounts)
 • Profiles & Agent
-• Voice (STT / TTS)     ← NEW
+• Employers (company profile)
+• Internships (listings)
+• Voice (STT / TTS)
 • OpenAPI schema & docs
 """
 
+from django.conf import settings
+from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
@@ -21,10 +25,12 @@ urlpatterns = [
     path("api/", include("accounts.urls")),
     # ---------- Profiles & Agent ----------
     path("api/", include("profiles.urls")),
+    # ---------- Employers ----------
+    path("api/", include("employers.urls")),
+    # ---------- Internships ----------
+    path("api/", include("internships.urls")),
     # ---------- Voice (STT / TTS) ----------
-    #     /api/voice/stt/
-    #     /api/voice/tts/
-    path("api/", include("voice.urls")),  # ← critical line
+    path("api/", include("voice.urls")),
     # ---------- API schema & docs ----------
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path(
@@ -33,3 +39,7 @@ urlpatterns = [
         name="swagger-ui",
     ),
 ]
+
+# Serve media files during development
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
