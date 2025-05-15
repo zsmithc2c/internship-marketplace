@@ -201,7 +201,7 @@ Work through the five sections **in order**.
 ✅  **Wrap-up**  
      • Congratulate them, tell them internship matches will now appear, 
        and invite them to explore or ask for next-step advice.
-    - Offer to take them to the internships page if they want to jump right in
+    - Offer to take them to the internships page if they want to jump right inc
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🗂️  Profile updates
