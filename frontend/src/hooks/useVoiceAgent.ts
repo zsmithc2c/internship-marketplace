@@ -1,12 +1,12 @@
-// frontend/src/hooks/useVoiceAgent.ts
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVoice } from "@/hooks/useVoice";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
 import { getAccess } from "@/lib/auth";
+import { jwtDecode } from "jwt-decode";
 
 /* ─────────────────────────── types ─────────────────────────── */
 export type Msg = { role: "user" | "assistant"; content: string };
@@ -14,11 +14,21 @@ type DonePayload = {
   delta: "";
   done: true;
   audio_base64?: string;
-  /* present when the FunctionTool returns the snapshot inline */
   profile?: Record<string, unknown>;
-  /* present when the backend only sends a timestamp */
   profile_updated_at?: string;
+  employer?: Record<string, unknown>;
 };
+
+/* ─────────────────────── role helper ─────────────────────── */
+function getRole(): "EMPLOYER" | "INTERN" {
+  try {
+    const token = getAccess();
+    const decoded = jwtDecode<{ role: string }>(token || "");
+    return decoded.role === "EMPLOYER" ? "EMPLOYER" : "INTERN";
+  } catch {
+    return "INTERN";
+  }
+}
 
 /* ─────────────────────── debounce helper ────────────────────── */
 function debounce<Args extends unknown[]>(
@@ -27,7 +37,7 @@ function debounce<Args extends unknown[]>(
 ) {
   let timer: ReturnType<typeof setTimeout> | null = null;
   return (...args: Args): void => {
-    if (timer) return; // ignore rapid repeats
+    if (timer) return;
     fn(...args);
     timer = setTimeout(() => {
       timer = null;
@@ -40,7 +50,13 @@ async function streamAgent(
   message: string,
   onDelta: (tok: string) => void,
 ): Promise<DonePayload> {
-  const res = await fetchWithAuth("/api/agent/profile-builder", {
+  const role = getRole();
+  const endpoint =
+    role === "EMPLOYER"
+      ? "/api/agent/employer-assistant/"
+      : "/api/agent/profile-builder/";
+
+  const res = await fetchWithAuth(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message }),
@@ -56,7 +72,6 @@ async function streamAgent(
     const { value, done } = await reader.read();
     if (value) buf += dec.decode(value, { stream: true });
 
-    /* ── parse complete lines ── */
     let idx: number;
     parseLoop: while ((idx = buf.indexOf("\n")) >= 0) {
       const line = buf.slice(0, idx).trim();
@@ -67,7 +82,6 @@ async function streamAgent(
       try {
         payload = JSON.parse(line);
       } catch {
-        // not a full JSON line yet
         buf = line + "\n" + buf;
         break parseLoop;
       }
@@ -112,7 +126,7 @@ function useSentenceSpeaker() {
         (au) =>
           new Promise<void>((resolve) => {
             au.addEventListener("ended", () => resolve(), { once: true });
-            au.play().catch(() => resolve()); // ignore autoplay-block
+            au.play().catch(() => resolve());
           }),
       )
       .finally(() => {
@@ -165,15 +179,15 @@ function splitSentences(chunk: string, final: boolean): [string, string] {
 export function useVoiceAgent() {
   const qc = useQueryClient();
   const router = useRouter();
+  const role = getRole();
+  const key = role === "EMPLOYER" ? "employer-assistant" : "profile-builder";
 
-  /* ----- navigation debouncer ----- */
   const navigate = debounce((path: string) => router.push(path), 1000);
 
-  /* ---------- fetch chat history ---------- */
   const { data: serverHistory = [] } = useQuery({
-    queryKey: ["chat", "profile-builder"],
+    queryKey: ["chat", key],
     queryFn: async () => {
-      const res = await fetchWithAuth("/api/agent/profile-builder/history");
+      const res = await fetchWithAuth(`/api/agent/${key}/history`);
       if (!res.ok) throw new Error(await res.text());
       return res.json() as Promise<Msg[]>;
     },
@@ -181,48 +195,35 @@ export function useVoiceAgent() {
     enabled: !!getAccess(),
   });
 
-  /* ---------- local history ---------- */
   const [history, setHistory] = useState<Msg[]>(serverHistory);
   useEffect(() => {
     if (history.length === 0 && serverHistory.length > 0) {
       setHistory(serverHistory);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverHistory]);
+  }, [serverHistory, history.length]);
 
-  /* ---------- mic / STT ---------- */
   const { isRecording, start, stop, transcript, sttLoading, sttError } =
     useVoice();
-
-  /* ---------- sentence TTS ---------- */
   const speakSentence = useSentenceSpeaker();
-
-  /* ---------- UI / stream state ---------- */
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  /* ---------- streaming buffers ---------- */
   const streamBuf = useRef("");
   const tailBuf = useRef("");
   const fullRef = useRef("");
 
-  function flush(final = false) {
-    const chunk = tailBuf.current + streamBuf.current;
-    const [done, rest] = splitSentences(chunk, final);
+  const sendMessage = useCallback(async (userMsg: string) => {
+    const flush = (final = false) => {
+      const chunk = tailBuf.current + streamBuf.current;
+      const [done, rest] = splitSentences(chunk, final);
+      if (done) {
+        done.split(/(?<=[.!?]["')\]]?)\s+/).forEach((s) => speakSentence(s.trim()));
+        fullRef.current += done;
+      }
+      tailBuf.current = rest;
+      streamBuf.current = "";
+    };
 
-    if (done) {
-      done
-        .split(/(?<=[.!?]["')\]]?)\s+/)
-        .forEach((s) => speakSentence(s.trim()));
-      fullRef.current += done;
-    }
-
-    tailBuf.current = rest;
-    streamBuf.current = "";
-  }
-
-  /* ---------- send message ---------- */
-  async function sendMessage(userMsg: string) {
     setSending(true);
     setError(null);
     streamBuf.current = "";
@@ -236,26 +237,17 @@ export function useVoiceAgent() {
     ]);
 
     const onDelta = (tok: string) => {
-      /* ----- navigation tag? ----- */
       const trim = tok.trim();
       if (trim.startsWith("{") && trim.endsWith("}")) {
         try {
           const obj = JSON.parse(trim);
-          if (
-            obj &&
-            typeof obj === "object" &&
-            typeof obj.navigate === "string" &&
-            Object.keys(obj).length === 1
-          ) {
+          if (obj && typeof obj.navigate === "string") {
             navigate(obj.navigate);
-            return; // do not append to transcript
+            return;
           }
-        } catch {
-          /* fall through */
-        }
+        } catch {}
       }
 
-      /* ----- normal text flow ----- */
       const merged = mergeOverlap(tailBuf.current + streamBuf.current, tok);
       streamBuf.current += merged.slice(
         (tailBuf.current + streamBuf.current).length,
@@ -275,7 +267,6 @@ export function useVoiceAgent() {
 
     try {
       const done = await streamAgent(userMsg, onDelta);
-
       flush(true);
       const finalText = fullRef.current + tailBuf.current;
 
@@ -287,23 +278,31 @@ export function useVoiceAgent() {
         };
         return copy;
       });
-      qc.setQueryData(["chat", "profile-builder"], (old: Msg[] = []) => [
+
+      qc.setQueryData(["chat", key], (old: Msg[] = []) => [
         ...old,
         { role: "user", content: userMsg },
         { role: "assistant", content: finalText || " " },
       ]);
 
-      /* ----- live profile refresh ----- */
-      if (done.profile) {
-        qc.setQueryData<Record<string, unknown>>(
-          ["profile", "me"],
-          (draft) => ({ ...(draft ?? {}), ...done.profile! }),
-        );
-        window.dispatchEvent(new Event("profile-saved"));   // ✅ toast
-      } else if (done.profile_updated_at) {
-        // mark stale *and* re-fetch the active observers right away
-        await qc.refetchQueries({ queryKey: ["profile", "me"], exact: true });
-        window.dispatchEvent(new Event("profile-saved"));   // ✅ toast, too
+      if (role === "EMPLOYER" && done.employer) {
+        qc.invalidateQueries({ queryKey: ["employer", "me"] });
+      }
+
+      if (role === "INTERN") {
+        if (done.profile) {
+          qc.setQueryData<Record<string, unknown> | undefined>(
+            ["profile", "me"],
+            (draft) => ({
+              ...(draft ?? {}),
+              ...done.profile!,
+            }),
+          );
+          window.dispatchEvent(new Event("profile-saved"));
+        } else if (done.profile_updated_at) {
+          await qc.refetchQueries({ queryKey: ["profile", "me"], exact: true });
+          window.dispatchEvent(new Event("profile-saved"));
+        }
       }
     } catch (err) {
       setError(err as Error);
@@ -311,19 +310,16 @@ export function useVoiceAgent() {
     } finally {
       setSending(false);
     }
-  }
+  }, [qc, navigate, key, role, speakSentence]);
 
-  /* ---------- auto-send transcript ---------- */
   const lastSent = useRef<string | null>(null);
   useEffect(() => {
     if (!transcript || sttLoading) return;
     if (transcript === lastSent.current) return;
     if (sending) return;
-
     lastSent.current = transcript;
     sendMessage(transcript);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transcript, sttLoading]);
+  }, [transcript, sttLoading, sending, sendMessage]);
 
   return {
     isRecording,

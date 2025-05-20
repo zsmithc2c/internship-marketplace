@@ -1,4 +1,3 @@
-# profiles/models.py
 from __future__ import annotations
 
 from django.conf import settings
@@ -94,12 +93,16 @@ class Education(models.Model):
 
 
 # ────────────────────────────────────────────────────────────────
-# NEW: Persistent chat transcript for the Profile-Builder agent
+# NEW: Persistent chat transcript with agent_type support
 # ────────────────────────────────────────────────────────────────
 class AgentMessage(models.Model):
     class Role(models.TextChoices):
         USER = "user", _("User")
         ASSISTANT = "assistant", _("Assistant")
+
+    class AgentType(models.TextChoices):
+        INTERN = "intern", _("Intern")
+        EMPLOYER = "employer", _("Employer")
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -107,6 +110,11 @@ class AgentMessage(models.Model):
         related_name="agent_messages",
     )
     role = models.CharField(max_length=9, choices=Role.choices)
+    agent_type = models.CharField(  # 🔥 New field
+        max_length=20,
+        choices=AgentType.choices,
+        default=AgentType.INTERN,
+    )
     content = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -115,4 +123,4 @@ class AgentMessage(models.Model):
 
     def __str__(self) -> str:  # pragma: no cover
         preview = (self.content[:40] + "…") if len(self.content) > 40 else self.content
-        return f"{self.user.email} [{self.role}] {preview}"
+        return f"{self.user.email} [{self.agent_type} | {self.role}] {preview}"

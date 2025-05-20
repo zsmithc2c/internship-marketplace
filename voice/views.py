@@ -95,7 +95,7 @@ class TextToSpeechView(APIView):
 
         # OpenAI returns an HttpxBinaryResponseContent wrapper → use .content
         speech = client.audio.speech.create(
-            model="tts-1",
+            model="gpt-4o-mini-tts",
             voice=voice,
             input=text,
             response_format="mp3",
