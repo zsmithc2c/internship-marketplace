@@ -5,23 +5,33 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 
+/* ------------------------------------------------------------------ */
+/*  Links (default vs. employer)                                      */
+/* ------------------------------------------------------------------ */
 const defaultLinks = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/account", label: "Account" },
-  { href: "/profile", label: "Profile" },
+  { href: "/dashboard",  label: "Dashboard" },
+  { href: "/account",    label: "Account"   },
+  { href: "/profile",    label: "Profile"   },
   { href: "/internships", label: "Internships" },
 ];
+
 const employerLinks = [
-  { href: "/employer/dashboard", label: "Employer Dashboard" },
-  { href: "/employer/profile", label: "Profile" },
-  { href: "/employer/internships", label: "Internships" },
-  { href: "/employer/account", label: "Account" },
+  { href: "/employer/dashboard",   label: "Employer Dashboard" },
+  { href: "/employer/profile",     label: "Profile"            },
+  { href: "/employer/internships", label: "Internships"        },
+  { href: "/employer/account",     label: "Account"            },
 ];
 
+/* ------------------------------------------------------------------ */
+/*  Component                                                         */
+/* ------------------------------------------------------------------ */
 export default function NavBar() {
-  const path = usePathname();
+  /* `usePathname()` returns `string | null` during SSR ─ add a fallback */
+  const pathname = usePathname() ?? "/";     // ← null-safe
   const { user } = useAuth();
+
   const links = user?.role === "EMPLOYER" ? employerLinks : defaultLinks;
+  const accent   = user?.role === "EMPLOYER" ? "bg-[--accent-employer]" : "bg-primary";
 
   return (
     <header
@@ -30,35 +40,32 @@ export default function NavBar() {
                  px-6 shadow-sm backdrop-blur-md transition-colors"
     >
       {/* logo / brand */}
-      <Link
-        href="/dashboard"
-        className="text-xl font-semibold tracking-tight text-white"
-      >
+      <Link href="/dashboard" className="text-xl font-semibold tracking-tight text-white">
         Pipeline
       </Link>
 
-      {/* links */}
+      {/* nav links */}
       <nav className="hidden md:flex items-center gap-4 text-sm font-medium text-neutral-200">
-        {links.map(({ href, label }) => (
-          <Link
-            key={href}
-            href={href}
-            className={cn(
-              "relative px-2 py-1 transition-colors hover:text-white",
-              path.startsWith(href) && "text-white"
-            )}
-          >
-            {label}
-            {path.startsWith(href) && (
-              <span
-                className={cn(
-                  "absolute inset-x-1 -bottom-0.5 h-0.5 rounded",
-                  user?.role === "EMPLOYER" ? "bg-[--accent-employer]" : "bg-primary"
-                )}
-              />
-            )}
-          </Link>
-        ))}
+        {links.map(({ href, label }) => {
+          const active = pathname.startsWith(href);
+          return (
+            <Link
+              key={href}
+              href={href}
+              className={cn(
+                "relative px-2 py-1 transition-colors hover:text-white",
+                active && "text-white",
+              )}
+            >
+              {label}
+              {active && (
+                <span
+                  className={`absolute inset-x-1 -bottom-0.5 h-0.5 rounded ${accent}`}
+                />
+              )}
+            </Link>
+          );
+        })}
       </nav>
     </header>
   );

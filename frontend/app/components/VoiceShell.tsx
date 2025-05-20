@@ -7,29 +7,26 @@ import FloatingVoiceAgent from "./FloatingVoiceAgent";
 import { VoiceAgentProvider } from "@/context/VoiceAgentContext";
 
 /**
- * Wraps the whole signed-in UI with:
- *   • NavBar
- *   • VoiceAgentProvider (query + recording state)
- *   • FloatingVoiceAgent mic bubble
+ * Wraps the signed-in application with:
+ *   • <NavBar />
+ *   • <VoiceAgentProvider /> (query + recording state)
+ *   • <FloatingVoiceAgent /> microphone bubble
  *
- * It stays **hidden** on public / auth pages
- * (`/landing`, `/login`, `/signup`) to avoid JWT-less API calls.
+ * Remains **hidden** on public / auth routes to avoid JWT-less API calls.
  */
-export default function VoiceShell({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const pathname = usePathname();
+export default function VoiceShell({ children }: { children: React.ReactNode }) {
+  /* `usePathname()` returns `string | null` on the first SSR pass → null-guard */
+  const pathname = usePathname() ?? "";
+
+  /* Public (unauthenticated / marketing) pages */
   const isPublic =
     pathname === "/landing" ||
     pathname.startsWith("/login") ||
     pathname.startsWith("/signup");
 
-  // ── Marketing / auth pages ─────────────────────────────────
   if (isPublic) return <>{children}</>;
 
-  // ── App pages (authenticated) ──────────────────────────────
+  /* Authenticated app pages */
   return (
     <VoiceAgentProvider>
       <NavBar />
