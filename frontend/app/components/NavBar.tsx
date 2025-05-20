@@ -6,13 +6,13 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 
 /* ------------------------------------------------------------------ */
-/*  Links (default vs. employer)                                      */
+/*  Per-role link sets                                                */
 /* ------------------------------------------------------------------ */
-const defaultLinks = [
-  { href: "/dashboard",  label: "Dashboard" },
-  { href: "/account",    label: "Account"   },
-  { href: "/profile",    label: "Profile"   },
-  { href: "/internships", label: "Internships" },
+const internLinks = [
+  { href: "/dashboard",     label: "Dashboard"    },
+  { href: "/profile",       label: "Profile"      },
+  { href: "/account",       label: "Account"      },
+  { href: "/internships",   label: "Internships"  },   // public list
 ];
 
 const employerLinks = [
@@ -26,26 +26,28 @@ const employerLinks = [
 /*  Component                                                         */
 /* ------------------------------------------------------------------ */
 export default function NavBar() {
-  /* `usePathname()` returns `string | null` during SSR ─ add a fallback */
-  const pathname = usePathname() ?? "/";     // ← null-safe
-  const { user } = useAuth();
+  const pathname = usePathname() ?? "/";
+  const { user } = useAuth();              // { role: "EMPLOYER" | "INTERN" | … }
 
-  const links = user?.role === "EMPLOYER" ? employerLinks : defaultLinks;
-  const accent   = user?.role === "EMPLOYER" ? "bg-[--accent-employer]" : "bg-primary";
+  const isEmployer = user?.role === "EMPLOYER";
+
+  const links   = isEmployer ? employerLinks : internLinks;
+  const accent  = isEmployer ? "bg-[--accent-employer]" : "bg-primary";
+  const homeURL = isEmployer ? "/employer/dashboard" : "/dashboard";
 
   return (
     <header
       className="fixed inset-x-0 top-0 z-50 flex h-14 items-center justify-between
                  gap-2 rounded-b-xl border-b border-white/10 bg-neutral-900/60
-                 px-6 shadow-sm backdrop-blur-md transition-colors"
+                 px-6 shadow-sm backdrop-blur-md"
     >
       {/* logo / brand */}
-      <Link href="/dashboard" className="text-xl font-semibold tracking-tight text-white">
+      <Link href={homeURL} className="text-xl font-semibold tracking-tight text-white">
         Pipeline
       </Link>
 
       {/* nav links */}
-      <nav className="hidden md:flex items-center gap-4 text-sm font-medium text-neutral-200">
+      <nav className="hidden items-center gap-4 text-sm font-medium text-neutral-200 md:flex">
         {links.map(({ href, label }) => {
           const active = pathname.startsWith(href);
           return (
