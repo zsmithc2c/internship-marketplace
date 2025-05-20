@@ -1,31 +1,64 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
   useEmployerInternships,
   useCreateInternship,
+  useUpdateInternship,
+  useDeleteInternship,
+  EmployerInternship,
 } from "@/hooks/useEmployerInternships";
 
+/* helper – decide initial tab from URL  */
+function getInitialTab(): "listings" | "new" {
+  if (typeof window === "undefined") return "listings";
+  if (window.location.hash === "#new") return "new";
+  const sp = new URLSearchParams(window.location.search);
+  if (sp.get("tab") === "new") return "new";
+  return "listings";
+}
+
 export default function EmployerInternshipsPage() {
-  /* ───── state & data hooks ───── */
-  const [tab, setTab] = useState<"listings" | "new">("listings");
+  /* state ---------------------------------------------------------- */
+  const [tab, setTab] = useState<"listings" | "new">(getInitialTab);
+  const [editingId, setEditingId] = useState<number | null>(null);
 
-  const {
-    data: internships,
-    isLoading,       // from useQuery → isLoading is valid
-    error,
-  } = useEmployerInternships();
+  /* --------------------------------------------------------------- */
+  /*  URL hash <--> tab sync                                         */
+  /* --------------------------------------------------------------- */
 
-  const {
-    mutate: createInternship,
-    isPending: isCreating,   // ← fixed: v5 flag name
-    error: createError,
-  } = useCreateInternship();
+  const searchParams = useSearchParams();
 
-  /* ───── form state for new listing ───── */
-  const [newJob, setNewJob] = useState({
+  useEffect(() => {
+    /* when user manually changes hash (e.g. agent navigated) */
+    const onHash = () => {
+      if (window.location.hash === "#new") setTab("new");
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  /* if ?tab=new query param is present, switch */
+  useEffect(() => {
+    if (searchParams?.get("tab") === "new") setTab("new");
+  }, [searchParams]);
+
+  /* --------------------------------------------------------------- */
+  /*  data hooks / mutations (unchanged)                             */
+  /* --------------------------------------------------------------- */
+  const { data: internships, isLoading, error } = useEmployerInternships();
+  const { mutate: createInternship, isPending: isCreating, error: createError } =
+    useCreateInternship();
+  const { mutate: updateInternship, isPending: isUpdating, error: updateError } =
+    useUpdateInternship();
+  const { mutate: deleteInternship, error: deleteError } = useDeleteInternship();
+
+  /* form state ----------------------------------------------------- */
+  const [formData, setFormData] = useState({
     title: "",
     description: "",
     location: "",
@@ -33,70 +66,109 @@ export default function EmployerInternshipsPage() {
     is_remote: false,
   });
 
-  const handleCreate = (e: React.FormEvent) => {
-    e.preventDefault();
-    createInternship(newJob, {
-      onSuccess: () => {
-        setNewJob({
-          title: "",
-          description: "",
-          location: "",
-          requirements: "",
-          is_remote: false,
+  /* populate form when editing ------------------------------------ */
+  useEffect(() => {
+    if (editingId && internships) {
+      const current = internships.find((it) => it.id === editingId);
+      if (current) {
+        setFormData({
+          title: current.title,
+          description: current.description,
+          location: current.location || "",
+          requirements: current.requirements || "",
+          is_remote: current.is_remote,
         });
-        setTab("listings");
-      },
+        setTab("new");
+      }
+    }
+  }, [editingId, internships]);
+
+  /* submit handler ------------------------------------------------- */
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!formData.title.trim() || !formData.description.trim()) return;
+
+    if (editingId) {
+      updateInternship(
+        { id: editingId, data: formData },
+        {
+          onSuccess: () => {
+            resetForm();
+            setTab("listings");
+          },
+        }
+      );
+    } else {
+      createInternship(formData, {
+        onSuccess: () => {
+          resetForm();
+          setTab("listings");
+        },
+      });
+    }
+  }
+
+  function resetForm() {
+    setEditingId(null);
+    setFormData({
+      title: "",
+      description: "",
+      location: "",
+      requirements: "",
+      is_remote: false,
     });
+  }
+
+  /* actions -------------------------------------------------------- */
+  const handleEdit = (job: EmployerInternship) => setEditingId(job.id);
+  const handleDelete = (id: number) => {
+    if (confirm("Delete this listing?")) deleteInternship(id);
   };
 
-  /* ───── render ───── */
+  /* ------------------------------------------------------------------ */
+  /*  Render                                                            */
+  /* ------------------------------------------------------------------ */
   return (
     <main className="min-h-screen bg-gray-50/60 pt-14">
       <section className="mx-auto max-w-4xl px-6 py-16">
-        {/* Tabs navigation */}
+        {/* tab bar */}
         <div className="mb-6 flex border-b border-gray-200">
-          <button
-            onClick={() => setTab("listings")}
-            className={`px-4 py-2 text-sm font-medium ${
-              tab === "listings"
-                ? "border-b border-[--accent-employer] text-[--accent-employer]"
-                : "border-b border-transparent text-muted-foreground hover:text-foreground/80"
-            }`}
-          >
-            Listings
-          </button>
-          <button
-            onClick={() => setTab("new")}
-            className={`px-4 py-2 text-sm font-medium ${
-              tab === "new"
-                ? "border-b border-[--accent-employer] text-[--accent-employer]"
-                : "border-b border-transparent text-muted-foreground hover:text-foreground/80"
-            }`}
-          >
-            Create New
-          </button>
+          {(["listings", "new"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => {
+                if (t === "listings") resetForm();
+                setTab(t);
+              }}
+              className={`px-4 py-2 text-sm font-medium ${
+                tab === t
+                  ? "border-b border-[--accent-employer] text-[--accent-employer]"
+                  : "border-b border-transparent text-muted-foreground hover:text-foreground/80"
+              }`}
+            >
+              {t === "listings" ? "Listings" : editingId ? "Edit Internship" : "Create New"}
+            </button>
+          ))}
         </div>
 
-        {/* Tabs content */}
         {tab === "listings" ? (
+          /* ------------------- LISTINGS TABLE ------------------- */
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="text-muted-foreground">
                 <tr className="border-b">
-                  <th className="py-2 text-left font-medium">Title</th>
-                  <th className="py-2 text-left font-medium">Status</th>
-                  <th className="py-2 text-left font-medium">Applicants</th>
-                  <th className="py-2 text-left font-medium">Actions</th>
+                  {["Title", "Status", "Applicants", "Actions"].map((h) => (
+                    <th key={h} className="py-2 text-left font-medium">
+                      {h}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td
-                      colSpan={4}
-                      className="py-6 text-center text-muted-foreground"
-                    >
-                      Loading internships…
+                    <td colSpan={4} className="py-6 text-center text-muted-foreground">
+                      Loading…
                     </td>
                   </tr>
                 ) : error ? (
@@ -105,22 +177,47 @@ export default function EmployerInternshipsPage() {
                       {(error as Error).message}
                     </td>
                   </tr>
-                ) : internships && internships.length > 0 ? (
-                  internships.map((internship) => (
-                    <tr key={internship.id} className="border-b">
-                      <td className="py-2">{internship.title}</td>
+                ) : internships && internships.length ? (
+                  internships.map((job) => (
+                    <tr key={job.id} className="border-b">
+                      <td className="py-2">{job.title}</td>
                       <td className="py-2">Open</td>
-                      <td className="py-2">0</td>
-                      <td className="py-2"></td>
+                      <td className="py-2">
+                        <Link
+                          href={`/employer/internships/${job.id}/applications`}
+                          className="underline"
+                        >
+                          {job.applications_count ?? 0}
+                        </Link>
+                      </td>
+                      <td className="py-2 space-x-2">
+                        <Button size="sm" onClick={() => handleEdit(job)}>
+                          Edit
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="text-red-600"
+                          onClick={() => handleDelete(job.id)}
+                        >
+                          Delete
+                        </Button>
+                      </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td
-                      colSpan={4}
-                      className="py-6 text-center text-muted-foreground"
-                    >
-                      No internships yet.
+                    <td colSpan={4} className="py-6 text-center text-muted-foreground">
+                      No listings yet.
+                    </td>
+                  </tr>
+                )}
+
+                {/* combined mutation errors */}
+                {(createError || updateError || deleteError) && (
+                  <tr>
+                    <td colSpan={4} className="py-4 text-center text-red-600">
+                      {((createError || updateError || deleteError) as Error).message}
                     </td>
                   </tr>
                 )}
@@ -128,85 +225,73 @@ export default function EmployerInternshipsPage() {
             </table>
           </div>
         ) : (
-          <form onSubmit={handleCreate} className="space-y-6">
+          /* ------------------- CREATE/EDIT FORM ------------------ */
+          <form className="space-y-4" onSubmit={handleSubmit}>
             <div>
               <label className="mb-1 block text-sm font-medium">Title</label>
               <Input
-                type="text"
-                placeholder="Internship title"
-                value={newJob.title}
-                onChange={(e) =>
-                  setNewJob({ ...newJob, title: e.target.value })
-                }
+                value={formData.title}
+                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                required
               />
             </div>
-
             <div>
-              <label className="mb-1 block text-sm font-medium">
-                Description
-              </label>
-              <textarea
-                rows={5}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[--accent-primary] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                placeholder="Describe the internship role"
-                value={newJob.description}
+              <label className="mb-1 block text-sm font-medium">Description</label>
+              <Input
+                value={formData.description}
                 onChange={(e) =>
-                  setNewJob({ ...newJob, description: e.target.value })
+                  setFormData({ ...formData, description: e.target.value })
                 }
+                required
               />
             </div>
-
             <div>
               <label className="mb-1 block text-sm font-medium">Location</label>
               <Input
-                type="text"
-                placeholder="City, State (leave blank if remote)"
-                value={newJob.location}
+                value={formData.location}
+                disabled={formData.is_remote}
+                placeholder={formData.is_remote ? "Remote internship" : ""}
                 onChange={(e) =>
-                  setNewJob({ ...newJob, location: e.target.value })
+                  setFormData({ ...formData, location: e.target.value })
                 }
+                required={!formData.is_remote}
               />
-              <div className="mt-2">
-                <label className="flex items-center text-sm font-medium">
-                  <input
-                    type="checkbox"
-                    className="mr-2 h-4 w-4 rounded border-gray-300 text-[--accent-employer] focus:ring-[--accent-employer]"
-                    checked={newJob.is_remote}
-                    onChange={(e) =>
-                      setNewJob({ ...newJob, is_remote: e.target.checked })
-                    }
-                  />
-                  Remote
-                </label>
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm font-medium">
-                Skills Required
+              <label className="mt-1 inline-flex items-center text-xs">
+                <input
+                  type="checkbox"
+                  className="mr-1"
+                  checked={formData.is_remote}
+                  onChange={(e) =>
+                    setFormData({ ...formData, is_remote: e.target.checked })
+                  }
+                />{" "}
+                Remote position
               </label>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">Requirements</label>
               <Input
-                type="text"
-                placeholder="e.g., Python, Project Management"
-                value={newJob.requirements}
+                value={formData.requirements}
+                placeholder="Skills (optional)"
                 onChange={(e) =>
-                  setNewJob({ ...newJob, requirements: e.target.value })
+                  setFormData({ ...formData, requirements: e.target.value })
                 }
               />
             </div>
-
-            {createError && (
-              <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 shadow">
-                {(createError as Error).message}
+            <Button type="submit" disabled={isCreating || isUpdating}>
+              {editingId
+                ? isUpdating
+                  ? "Saving…"
+                  : "Save Changes"
+                : isCreating
+                ? "Posting…"
+                : "Post Internship"}
+            </Button>
+            {(createError || updateError) && (
+              <p className="text-sm text-red-600">
+                {((createError || updateError) as Error).message}
               </p>
             )}
-
-            <Button
-              type="submit"
-              disabled={isCreating || !newJob.title || !newJob.description}
-            >
-              {isCreating ? "Creating…" : "Create Internship"}
-            </Button>
           </form>
         )}
       </section>

@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from internships.models import Application  # NEW: import Application model
+from internships.models import Application
 
 from .models import Employer
 
@@ -18,4 +18,4 @@ class ApplicationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Application
         fields = ("id", "intern_email", "status", "created_at")
-        read_only_fields = ("id", "intern_email", "status", "created_at")
+        read_only_fields = ("id", "intern_email", "created_at")

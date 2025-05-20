@@ -1,10 +1,10 @@
-from django.conf import settings  # NEW: for referencing AUTH_USER_MODEL
+from django.conf import settings
 from django.db import models
 
 
 class Internship(models.Model):
     employer = models.ForeignKey(
-        "employers.Employer",  # string ref avoids early import
+        "employers.Employer",  # string reference avoids circular import
         on_delete=models.CASCADE,
         related_name="internships",
     )
@@ -26,13 +26,17 @@ class Internship(models.Model):
 
 
 class Application(models.Model):
-    """Represents an intern's application to an internship listing."""
+    """Represents an intern’s application to an internship listing."""
 
     internship = models.ForeignKey(
-        Internship, on_delete=models.CASCADE, related_name="applications"
+        Internship,
+        on_delete=models.CASCADE,
+        related_name="applications",
     )
     intern = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="applications"
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="applications",
     )
 
     class Status(models.TextChoices):
@@ -41,7 +45,9 @@ class Application(models.Model):
         REJECTED = "rejected", "Rejected"
 
     status = models.CharField(
-        max_length=20, choices=Status.choices, default=Status.PENDING
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
     )
     created_at = models.DateTimeField(auto_now_add=True)
 

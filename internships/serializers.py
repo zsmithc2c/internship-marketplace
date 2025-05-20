@@ -6,6 +6,7 @@ from .models import Internship
 class InternshipSerializer(serializers.ModelSerializer):
     employer_name = serializers.ReadOnlyField(source="employer.company_name")
     employer_logo = serializers.SerializerMethodField()
+    applications_count = serializers.SerializerMethodField()  # New field
 
     class Meta:
         model = Internship
@@ -20,6 +21,7 @@ class InternshipSerializer(serializers.ModelSerializer):
             "updated_at",
             "employer_name",
             "employer_logo",
+            "applications_count",
         )
         read_only_fields = (
             "id",
@@ -27,17 +29,20 @@ class InternshipSerializer(serializers.ModelSerializer):
             "updated_at",
             "employer_name",
             "employer_logo",
+            "applications_count",
         )
 
     def get_employer_logo(self, obj):
-        # Return full URL for logo if present, else None
+        # Return full URL for logo if present
         request = self.context.get("request")
         if obj.employer.logo:
             url = obj.employer.logo.url
-            if request is not None:
-                return request.build_absolute_uri(url)
-            return url
+            return request.build_absolute_uri(url) if request is not None else url
         return None
+
+    def get_applications_count(self, obj):
+        # Count related applications for this internship
+        return obj.applications.count()
 
     def validate(self, attrs):
         # Require location if not remote

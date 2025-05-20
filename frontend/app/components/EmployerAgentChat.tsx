@@ -1,24 +1,73 @@
 "use client";
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-/*  Speech-recognition APIs lack upstream types — we fallback to `any`. */
-
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 
 /* ------------------------------------------------------------------ */
-/*  Types                                                             */
+/*  Minimal speech-recognition typings                                */
 /* ------------------------------------------------------------------ */
-type Message = {
-  role: "user" | "assistant";
-  content: string;
+interface RecognitionResultItem {
+  transcript: string;
+}
+interface RecognitionResult {
+  0: RecognitionResultItem;
+}
+interface RecognitionResultList {
+  0: RecognitionResult;
+}
+interface RecognitionEvent extends Event {
+  results: RecognitionResultList;
+}
+interface RecognitionInstance {
+  start(): void;
+  stop(): void;
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((e: RecognitionEvent) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+}
+type RecognitionCtor = new () => RecognitionInstance;
+
+const getRecognitionCtor = (): RecognitionCtor | null => {
+  if (typeof window === "undefined") return null;
+  const w = window as typeof window & {
+    SpeechRecognition?: RecognitionCtor;
+    webkitSpeechRecognition?: RecognitionCtor;
+  };
+  return w.SpeechRecognition || w.webkitSpeechRecognition || null;
 };
 
 /* ------------------------------------------------------------------ */
-/*  Component                                                         */
+/*  Chat & stream types                                               */
+/* ------------------------------------------------------------------ */
+type ChatRole = "user" | "assistant";
+interface ChatMessage {
+  role: ChatRole;
+  content: string;
+}
+interface StreamChunk {
+  delta?: string;
+  navigate?: string;
+  employer?: unknown;
+  listings_updated_at?: string;
+  listing_deleted?: boolean;
+  done?: boolean;
+  error?: string;
+}
+
+/* ------------------------------------------------------------------ */
+const speakText = (text: string) => {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+};
+
 /* ------------------------------------------------------------------ */
 const EmployerAgentChat: React.FC = () => {
-  /* ---------- state ---------- */
-  const [messages, setMessages] = useState<Message[]>([
+  const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: "assistant",
       content:
@@ -29,105 +78,146 @@ const EmployerAgentChat: React.FC = () => {
   const [listening, setListening] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  /* ---------- voice (STT) ---------- */
-  const recognitionRef = useRef<any | null>(null);
+  const recognitionRef = useRef<RecognitionInstance | null>(null);
+  const router = useRouter();
+  const qc = useQueryClient();
 
   /* ------------------------------------------------------------------ */
-  /*  Helpers                                                           */
+  /*  sendMessage (stream)                                              */
   /* ------------------------------------------------------------------ */
-  const speakText = (text: string) => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-    const utter = new SpeechSynthesisUtterance(text);
-    window.speechSynthesis.speak(utter);
-  };
-
-  /*  Main send → /api/employer-agent  --------------------------------- */
   const sendMessage = useCallback(
     async (content: string) => {
       if (!content.trim() || loading) return;
 
-      const userMsg: Message = { role: "user", content };
-      const convo = [...messages, userMsg];
-
-      /* optimistic UI */
-      setMessages([...convo, { role: "assistant", content: "" }]);
+      setMessages((prev) => [
+        ...prev,
+        { role: "user", content },
+        { role: "assistant", content: "" },
+      ]);
       setInput("");
       setLoading(true);
 
       try {
-        const res = await fetch("/api/employer-agent", {
+        const res = await fetch("/api/agent/employer-assistant/", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: convo }),
+          body: JSON.stringify({ message: content }),
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const { reply } = (await res.json()) as { reply: string };
+        if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
 
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = "";
+        let assistantReply = "";
+        let finalChunk: StreamChunk | null = null;
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+
+          let nl: number;
+          while ((nl = buf.indexOf("\n")) !== -1) {
+            const raw = buf.slice(0, nl).trim();
+            buf = buf.slice(nl + 1);
+            if (!raw) continue;
+
+            const chunk: StreamChunk = JSON.parse(raw);
+
+            if (chunk.error) throw new Error(chunk.error);
+
+            if (chunk.navigate) {
+              router.push(chunk.navigate);
+              return;
+            }
+
+            if (!chunk.done && chunk.delta) assistantReply += chunk.delta;
+
+            if (chunk.done) {
+              finalChunk = chunk;
+              break;
+            }
+          }
+        }
+
+        /* update assistant reply */
         setMessages((prev) => {
-          const updated = [...prev];
-          updated[updated.length - 1] = { role: "assistant", content: reply };
-          return updated;
+          const arr = [...prev];
+          arr[arr.length - 1] = { role: "assistant", content: assistantReply };
+          return arr;
         });
+        speakText(assistantReply);
 
-        speakText(reply);
-      } catch (error) {
-        console.error(error);
+        /* cache invalidation + toasts */
+        if (finalChunk?.employer) {
+          qc.invalidateQueries({ queryKey: ["employer", "me"] });
+          window.dispatchEvent(new Event("profile-saved"));
+        }
+        if (finalChunk?.listings_updated_at) {
+          qc.invalidateQueries({ queryKey: ["internships", "mine"] });
+          window.dispatchEvent(
+            new Event(finalChunk.listing_deleted ? "listing-deleted" : "listing-saved")
+          );
+        }
+      } catch (err) {
+        console.error(err);
         setMessages((prev) => {
-          const updated = [...prev];
-          updated[updated.length - 1] = {
+          const arr = [...prev];
+          arr[arr.length - 1] = {
             role: "assistant",
             content: "Sorry, something went wrong.",
           };
-          return updated;
+          return arr;
         });
       } finally {
         setLoading(false);
       }
     },
-    [messages, loading]
+    [loading, qc, router]
   );
 
-  /* ---------- speech-recognition setup ---------- */
+  /* ------------------------------------------------------------------ */
+  /*  Initialise speech recognition                                     */
+  /* ------------------------------------------------------------------ */
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    const ctor = getRecognitionCtor();
+    if (!ctor) return;
+    const rec = new ctor();
+    recognitionRef.current = rec;
 
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
-
-    const rec: any = new SpeechRecognition();
     rec.continuous = false;
     rec.interimResults = false;
     rec.lang = "en-US";
 
-    rec.onresult = (evt: any) => {
-      const transcript: string = evt.results[0][0].transcript.trim();
+    rec.onresult = (e: RecognitionEvent) => {
+      const transcript = e.results[0][0].transcript.trim();
       setListening(false);
       if (transcript) sendMessage(transcript);
     };
     rec.onend = () => setListening(false);
     rec.onerror = () => setListening(false);
+  }, [sendMessage]);
 
-    recognitionRef.current = rec;
-  }, [sendMessage]); // ✅ include sendMessage to satisfy exhaustive-deps
-
-  const handleMicToggle = () => {
+  /* ------------------------------------------------------------------ */
+  /*  UI handlers                                                       */
+  /* ------------------------------------------------------------------ */
+  const toggleMic = () => {
     const rec = recognitionRef.current;
     if (!rec) return;
     try {
       if (listening) {
         rec.stop();
+        setListening(false);
       } else {
         rec.start();
         setListening(true);
       }
     } catch {
-      /* ignore race "start when already started" */
+      /* silent */
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (input.trim()) sendMessage(input.trim());
@@ -143,7 +233,7 @@ const EmployerAgentChat: React.FC = () => {
       <div className="mb-3 flex-1 overflow-y-auto">
         {messages.map((m, i) => (
           <div
-            key={i} /* i is number ⇒ satisfies React.Key */
+            key={i}
             className={`my-1 flex ${
               m.role === "user" ? "justify-end" : "justify-start"
             }`}
@@ -165,25 +255,24 @@ const EmployerAgentChat: React.FC = () => {
       {/* controls */}
       <div className="flex items-center space-x-2 border-t pt-2">
         <button
-          onClick={handleMicToggle}
+          onClick={toggleMic}
           disabled={loading}
+          title="Toggle voice input"
           className={`rounded px-3 py-2 ${
             listening
               ? "bg-red-500 text-white"
               : "bg-gray-100 text-gray-800 hover:bg-gray-200"
           }`}
-          title="Toggle voice input"
         >
           {listening ? "⏹" : "🎤"}
         </button>
 
         <input
-          type="text"
           className="flex-1 rounded border px-3 py-2"
           placeholder="Type your question…"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
+          onKeyDown={onKeyDown}
           disabled={loading}
         />
 

@@ -1,4 +1,3 @@
-// frontend/app/dashboard/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -13,6 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { useProfile } from "@/hooks/useProfile";
+import { useEmployerInternships } from "@/hooks/useEmployerInternships";
 import { useVoiceAgentCtx } from "@/context/VoiceAgentContext";
 
 import {
@@ -21,6 +21,7 @@ import {
   GraduationCap,
   LogOut,
   Mic,
+  Building,
 } from "lucide-react";
 
 interface JwtPayload {
@@ -39,13 +40,16 @@ export default function Dashboard() {
     const t = localStorage.getItem("access");
     if (!t) return router.replace("/login");
     try {
-      setRole(jwtDecode<JwtPayload>(t).role);
+      const decoded = jwtDecode<JwtPayload>(t);
+      setRole(decoded.role);
     } catch {
       router.replace("/login");
     }
   }, [router]);
 
-  const { data: profile, isLoading } = useProfile();
+  // Fetch intern profile or employer internships based on role
+  const { data: profile, isLoading: loadingProfile } = useProfile();
+  const { data: myInternships } = useEmployerInternships();  // will only be used if role === "EMPLOYER"
 
   /* ── quick-link tiles ───────────────────────────────────────── */
   const tiles = [
@@ -70,33 +74,47 @@ export default function Dashboard() {
         title: "Internships",
         desc: "Browse & apply in seconds.",
         href: "/internships",
+      }
+    );
+  } else if (role === "EMPLOYER") {
+    tiles.push(
+      {
+        icon: <Building className="h-6 w-6" />,
+        title: "Company Profile",
+        desc: "View and edit your company information.",
+        href: "/employer/profile",
       },
+      {
+        icon: <Briefcase className="h-6 w-6" />,
+        title: "Internships",
+        desc: "Manage your internship listings.",
+        href: "/employer/internships",
+      }
     );
   }
 
   /* ── render ─────────────────────────────────────────────────── */
+  // Greeting text for role
+  const roleGreeting = role ? role.toLowerCase() : "";
   return (
     <main className="pt-14">
       {/* ───── Hero + Agent CTA ───── */}
       <section className="relative isolate overflow-hidden bg-gradient-to-br from-indigo-500 via-violet-600 to-fuchsia-600">
-        {/* decorative overlay – ignore clicks */}
+        {/* decorative overlay */}
         <div className="pointer-events-none absolute inset-0 opacity-30 mix-blend-soft-light [mask-image:radial-gradient(transparent_45%,black)]" />
-
         <div className="relative z-10 mx-auto flex max-w-5xl flex-col items-center gap-6 px-6 py-20 text-center">
           {/* greeting */}
           <div className="space-y-3">
-            <h1 className="text-3xl/tight font-extrabold tracking-tight text-white drop-shadow-lg">
-              Welcome back{role ? `, ${role.toLowerCase()}!` : "!"}
+            <h1 className="text-3xl font-extrabold tracking-tight text-white drop-shadow-lg">
+              Welcome back{roleGreeting ? `, ${roleGreeting}!` : "!"}
             </h1>
             <p className="max-w-lg text-white/90">
               Pipeline pairs ambitious talent with curated internships — and
               your personal AI mentor is ready to help.
             </p>
           </div>
-
-          {/* voice-agent card */}
+          {/* voice-agent call-to-action card */}
           <Card
-            /* Only start / stop recording; no transcript toggle */
             onPointerDown={() => va?.start?.()}
             onPointerUp={() => va?.stop?.()}
             onPointerCancel={() => va?.stop?.()}
@@ -109,7 +127,6 @@ export default function Dashboard() {
                 <Mic className="h-7 w-7" />
               )}
             </span>
-
             <div className="flex-1 space-y-1 text-left">
               <h2 className="text-lg font-semibold text-primary">
                 Hold to talk with your Pipeline&nbsp;Agent
@@ -120,8 +137,7 @@ export default function Dashboard() {
               </p>
             </div>
           </Card>
-
-          {/* logout */}
+          {/* logout button */}
           <button
             onClick={() => {
               localStorage.removeItem("access");
@@ -135,8 +151,9 @@ export default function Dashboard() {
         </div>
       </section>
 
-      {/* ───── Quick links & profile freshness ───── */}
+      {/* ───── Quick links & role-specific info ───── */}
       <section className="bg-gray-50/60 pb-24 pt-16">
+        {/* Quick link tiles */}
         <div className="mx-auto grid max-w-6xl gap-6 px-6 sm:grid-cols-2 lg:grid-cols-3">
           {tiles.map(({ href, icon, title, desc }) => (
             <Link key={href} href={href} className="group">
@@ -155,12 +172,12 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* profile freshness */}
+        {/* Profile freshness for interns */}
         {role === "INTERN" && (
           <div className="mx-auto mt-12 max-w-6xl px-6">
             <Card className="rounded-xl border-l-4 border-primary bg-white/90 shadow-sm">
               <CardContent className="flex items-center gap-2 py-4 text-sm">
-                {isLoading ? (
+                {loadingProfile ? (
                   <>Checking profile…</>
                 ) : profile ? (
                   <>
@@ -169,11 +186,28 @@ export default function Dashboard() {
                     — hold the Agent bubble to refine it!
                   </>
                 ) : (
-                  <>
-                    No profile yet — hold the Agent bubble and we&rsquo;ll build
-                    it together.
-                  </>
+                  <>No profile data found.</>
                 )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Summary metrics for employers */}
+        {role === "EMPLOYER" && myInternships && (
+          <div className="mx-auto mt-12 max-w-6xl px-6">
+            <Card className="rounded-xl border-l-4 border-primary bg-white/90 shadow-sm">
+              <CardContent className="py-4 text-sm">
+                <p>
+                  <strong>Internships posted:</strong> {myInternships.length}
+                </p>
+                <p>
+                  <strong>Total applications received:</strong>{" "}
+                  {myInternships.reduce(
+                    (sum, listing) => sum + (listing.applications_count || 0),
+                    0
+                  )}
+                </p>
               </CardContent>
             </Card>
           </div>
