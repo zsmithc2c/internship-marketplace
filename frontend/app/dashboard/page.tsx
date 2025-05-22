@@ -71,17 +71,27 @@ const ROLE_LABEL: Record<string, string> = { INTERN: "Intern", EMPLOYER: "Employ
 const metricWrapper = "rounded-xl bg-white/80 backdrop-blur ring-1 ring-gray-200 shadow-sm";
 
 /* =============================================================== */
-/*   Footer – links removed for now                                */
+/*   Footer – display-only links                                   */
 /* =============================================================== */
 function Footer() {
   return (
     <footer className="mt-auto bg-gray-900 text-white">
-      <div className="mx-auto max-w-6xl px-6 py-10">
-        <h3 className="text-lg font-semibold">Pipeline</h3>
-        <p className="mt-2 max-w-xs text-sm text-gray-300">
-          Connecting ambitious talent with innovative companies.
-        </p>
+      <div className="mx-auto max-w-6xl px-6 py-10 grid grid-cols-1 gap-8 sm:grid-cols-3">
+        <div>
+          <h3 className="text-lg font-semibold">Pipeline</h3>
+          <p className="mt-2 max-w-xs text-sm text-gray-300">
+            Connecting ambitious talent with innovative companies.
+          </p>
+        </div>
+
+        <nav className="space-y-2 text-sm text-gray-400">
+          <span className="block">About</span>
+          <span className="block">Privacy</span>
+          <span className="block">Terms</span>
+          <span className="block">Contact</span>
+        </nav>
       </div>
+
       <div className="border-t border-gray-800 py-4 text-center text-xs text-gray-400">
         © {new Date().getFullYear()} Pipeline. All rights reserved.
       </div>
@@ -221,10 +231,11 @@ export default function DashboardPage() {
       ? `, ${employerProfile.company_name}`
       : `, ${ROLE_LABEL[role ?? ""] ?? "User"}`;
 
-  /* ─── voice-agent helpers – mimic floating mic behaviour ───────── */
+  /* ─── voice-agent helpers – toggle like floating button ───────── */
   const startAgent = () =>
     va?.start ? va.start() : router.push(isIntern ? "/profile/builder" : "/employer/profile#agent");
   const stopAgent = () => va?.stop?.();
+  const toggleAgent = () => (va?.isRecording ? stopAgent() : startAgent());
 
   /* ============================================================= */
   return (
@@ -262,24 +273,17 @@ export default function DashboardPage() {
             )}
           </p>
 
-          {/* voice agent CTA – press & hold */}
+          {/* voice agent CTA – toggle on click, hold optional */}
           <div className="relative inline-block">
             <Card
               role="button"
               tabIndex={0}
-              onPointerDown={(e) => {
-                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                startAgent();
-              }}
-              onPointerUp={(e) => {
-                (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-                stopAgent();
-              }}
-              onPointerCancel={stopAgent}
+              onClick={toggleAgent}
+              onPointerDown={(e) => (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)}
+              onPointerUp={(e) => (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)}
               onKeyDown={(e) =>
-                ["Space", "Enter"].includes(e.code) && (e.preventDefault(), startAgent())
+                ["Space", "Enter"].includes(e.code) && (e.preventDefault(), toggleAgent())
               }
-              onKeyUp={(e) => ["Space", "Enter"].includes(e.code) && stopAgent()}
               className="relative flex max-w-md cursor-pointer items-center gap-4 rounded-3xl bg-white/90 p-6 shadow-lg transition hover:shadow-xl active:scale-[0.97] focus:outline-none focus:ring-4 focus:ring-[--accent-primary]/50"
             >
               <span className="relative grid size-14 place-items-center rounded-full bg-primary/10 text-primary shadow-md">
@@ -294,7 +298,9 @@ export default function DashboardPage() {
               </span>
               <div className="flex-1 text-left">
                 <h2 className="text-lg font-semibold text-primary">Talk to your Pipeline&nbsp;Agent</h2>
-                <p className="text-xs text-muted-foreground">Press & hold (space/enter) to speak.</p>
+                <p className="text-xs text-muted-foreground">
+                  {va?.isRecording ? "Release or click to stop." : "Click or hold (space/enter) to talk."}
+                </p>
               </div>
             </Card>
 
