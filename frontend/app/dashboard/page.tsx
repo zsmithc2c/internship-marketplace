@@ -1,7 +1,7 @@
-// /frontend/app/dashboard/page.tsx
+/* app/dashboard/page.tsx */
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
@@ -16,6 +16,11 @@ import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
 import { useEmployerProfile } from "@/hooks/useEmployerProfile";
 import { useVoiceAgentCtx } from "@/context/VoiceAgentContext";
+import { useOpenInternships } from "@/hooks/useOpenInternships";
+
+import MetricCard from "./MetricCard";
+import TipCarousel from "./TipCarousel";
+import ActivityFeed from "./ActivityFeed";
 
 import {
   User,
@@ -29,95 +34,147 @@ import {
   Lightbulb,
 } from "lucide-react";
 
-/* ─────────── Types ─────────── */
-type IconComponent = React.ComponentType<React.SVGProps<SVGSVGElement>>;
+/* ------------------------------------------------------------------ */
+/*   very-small typewriter (no extra deps)                            */
+/* ------------------------------------------------------------------ */
+function Typewriter({
+  text,
+  speed = 50,
+  loop = false,
+}: {
+  text: string;
+  speed?: number;
+  loop?: boolean;
+}) {
+  const [idx, setIdx] = useState(0);
 
-interface SummaryMetricProps {
-  icon: IconComponent;
-  label: string;
-  children: React.ReactNode;
+  useEffect(() => {
+    if (idx === text.length) {
+      if (!loop) return;
+      const pause = setTimeout(() => setIdx(0), 1200);
+      return () => clearTimeout(pause);
+    }
+    const t = setTimeout(() => setIdx((i) => i + 1), speed);
+    return () => clearTimeout(t);
+  }, [idx, text, speed, loop]);
+
+  return <span>{text.slice(0, idx)}</span>;
 }
+/* ------------------------------------------------------------------ */
 
 interface InternshipSummary {
   id: number;
   posted_at: string;
   applications_count?: number;
 }
+const ROLE_LABEL: Record<string, string> = { INTERN: "Intern", EMPLOYER: "Employer" };
+const metricWrapper = "rounded-xl bg-white/80 backdrop-blur ring-1 ring-gray-200 shadow-sm";
 
-/* ─────────── Helpers ─────────── */
-function SummaryMetric({ icon: Icon, label, children }: SummaryMetricProps) {
+/* =============================================================== */
+/*   Footer – links removed for now                                */
+/* =============================================================== */
+function Footer() {
   return (
-    <Card className="flex items-center p-4">
-      <Icon className="h-6 w-6 text-[--accent-primary]" />
-      <div className="ml-4">
-        <p className="text-sm text-muted-foreground">{label}</p>
-        <p className="text-2xl font-bold">{children}</p>
+    <footer className="mt-auto bg-gray-900 text-white">
+      <div className="mx-auto max-w-6xl px-6 py-10">
+        <h3 className="text-lg font-semibold">Pipeline</h3>
+        <p className="mt-2 max-w-xs text-sm text-gray-300">
+          Connecting ambitious talent with innovative companies.
+        </p>
       </div>
-    </Card>
+      <div className="border-t border-gray-800 py-4 text-center text-xs text-gray-400">
+        © {new Date().getFullYear()} Pipeline. All rights reserved.
+      </div>
+    </footer>
   );
 }
 
-const ROLE_LABEL: Record<string, string> = {
-  INTERN: "Intern",
-  EMPLOYER: "Employer",
-};
-
-/* ─────────── Page ─────────── */
+/* ================================================================== */
 export default function DashboardPage() {
   const router = useRouter();
   const { user, isLoading: authLoading, logout } = useAuth();
   const va = useVoiceAgentCtx();
 
-  /* role flags */
+  /* ─── local state ─────────────────────────────────────────────── */
+  const [showTooltip, setShowTooltip] = useState(false);
+
+  /* ─── role helpers ────────────────────────────────────────────── */
   const role = user?.role;
   const isEmployer = role === "EMPLOYER";
   const isIntern = role === "INTERN";
 
-  /* queries */
-  const { data: profile, isLoading: loadingProfile } = useProfile();
+  /* ─── queries (run every render) ──────────────────────────────── */
+  const { data: profile } = useProfile();
   const { data: employerProfile } = useEmployerProfile({ enabled: isEmployer });
-
-  const {
-    data: myInternships = [],
-    isLoading: loadingInternships,
-  } = useQuery<InternshipSummary[]>({
+  const { data: myInternships = [] } = useQuery<InternshipSummary[]>({
     queryKey: ["internships", "mine"],
-    queryFn: () =>
-      fetchWithAuth("/api/internships?mine=true").then((r) => r.json()),
-    enabled: isEmployer,
+    queryFn: () => fetchWithAuth("/api/internships?mine=true").then((r) => r.json()),
+    enabled: !!user && isEmployer,
+    staleTime: 60_000,
+  });
+  const { data: openInternships = [] } = useOpenInternships({
+    enabled: !!user && isIntern,
     staleTime: 60_000,
   });
 
-  /* auth guard */
+  /* ─── voice-agent tooltip (first visit) ───────────────────────── */
+  useEffect(() => {
+    if (
+      isIntern &&
+      typeof window !== "undefined" &&
+      !localStorage.getItem("agentTooltipSeen")
+    ) {
+      setShowTooltip(true);
+      localStorage.setItem("agentTooltipSeen", "true");
+      setTimeout(() => setShowTooltip(false), 5_000);
+    }
+  }, [isIntern]);
+
+  /* ─── confetti after first successful voice session ───────────── */
+  useEffect(() => {
+    if (
+      isIntern &&
+      typeof window !== "undefined" &&
+      va?.history?.length &&
+      !localStorage.getItem("confettiDone")
+    ) {
+      if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        import("canvas-confetti").then(({ default: confetti }) =>
+          confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } }),
+        );
+      }
+      localStorage.setItem("confettiDone", "true");
+    }
+  }, [isIntern, va?.history?.length]);
+
+  /* ─── auth guard ──────────────────────────────────────────────── */
   useEffect(() => {
     if (!authLoading && !user) router.replace("/login");
   }, [authLoading, user, router]);
 
-  if (authLoading) {
+  /* ─── loading screen ──────────────────────────────────────────── */
+  if (authLoading)
     return (
       <main className="grid min-h-screen place-items-center">
         <div className="size-10 animate-spin rounded-full border-4 border-muted-foreground/30 border-t-transparent" />
       </main>
     );
-  }
   if (!user) return null;
 
-  /* derived values */
-  const profileCompletion = profile
-    ? Math.round(
-        (
-          [
-            profile.headline,
-            profile.bio,
-            (profile.skills ?? []).length,
-            (profile.educations ?? []).length,
-            profile.city || profile.country,
-          ].filter(Boolean).length /
-            5
-        ) *
-          100,
-      )
-    : 0;
+  /* ─── computed helpers ────────────────────────────────────────── */
+  const profileCompletion =
+    profile &&
+    Math.round(
+      (
+        [
+          profile.headline,
+          profile.bio,
+          (profile.skills ?? []).length,
+          (profile.educations ?? []).length,
+          profile.city || profile.country,
+        ].filter(Boolean).length / 5
+      ) * 100,
+    );
 
   const tiles = [
     {
@@ -126,77 +183,78 @@ export default function DashboardPage() {
       desc: "Manage credentials & notifications",
       href: "/account",
     },
+    ...(isIntern
+      ? [
+          {
+            icon: <GraduationCap className="h-6 w-6" />,
+            title: "My Profile",
+            desc: "View or edit your profile",
+            href: "/profile",
+          },
+          {
+            icon: <Briefcase className="h-6 w-6" />,
+            title: "Browse Internships",
+            desc: "Find and apply to internships",
+            href: "/internships",
+          },
+        ]
+      : isEmployer
+      ? [
+          {
+            icon: <Building className="h-6 w-6" />,
+            title: "Company Profile",
+            desc: "View and edit company info",
+            href: "/employer/profile",
+          },
+          {
+            icon: <Briefcase className="h-6 w-6" />,
+            title: "Manage Internships",
+            desc: "Post and manage listings",
+            href: "/employer/internships",
+          },
+        ]
+      : []),
   ];
-
-  if (isIntern) {
-    tiles.push(
-      {
-        icon: <GraduationCap className="h-6 w-6" />,
-        title: "My Profile",
-        desc: "View or edit your profile",
-        href: "/profile",
-      },
-      {
-        icon: <Briefcase className="h-6 w-6" />,
-        title: "Browse Internships",
-        desc: "Find and apply to internships",
-        href: "/internships",
-      },
-    );
-  } else if (isEmployer) {
-    tiles.push(
-      {
-        icon: <Building className="h-6 w-6" />,
-        title: "Company Profile",
-        desc: "View and edit company info",
-        href: "/employer/profile",
-      },
-      {
-        icon: <Briefcase className="h-6 w-6" />,
-        title: "Manage Internships",
-        desc: "Post and manage listings",
-        href: "/employer/internships",
-      },
-    );
-  }
 
   const greetingAddon =
     isEmployer && employerProfile?.company_name
       ? `, ${employerProfile.company_name}`
       : `, ${ROLE_LABEL[role ?? ""] ?? "User"}`;
 
-  /* voice handlers */
-  const handleAgentPressStart = () => {
-    if (va?.start) va.start();
-    else {
-      router.push(isIntern ? "/profile/builder" : "/employer/profile#agent");
-    }
-  };
-  const handleAgentPressEnd = () => va?.stop?.();
+  /* ─── voice-agent helpers – mimic floating mic behaviour ───────── */
+  const startAgent = () =>
+    va?.start ? va.start() : router.push(isIntern ? "/profile/builder" : "/employer/profile#agent");
+  const stopAgent = () => va?.stop?.();
 
-  /* ─────────── Render ─────────── */
+  /* ============================================================= */
   return (
-    <main className="pt-14">
+    <main className="flex min-h-screen flex-col bg-gradient-to-br from-[#f1f5ff] via-[#eef7ff] to-[#e6f4ff] text-black">
       {/* Hero */}
       <section className="relative isolate overflow-hidden">
-        <div className="absolute inset-0 -z-10">
-          <Image
-            src="/images/dashboard-hero.jpg"
-            alt="Dashboard banner"
-            fill
-            priority
-            sizes="100vw"
-            className="object-cover object-center"
-          />
-          <div className="absolute inset-0 bg-black/40" />
+        {/* full-width gradient ribbon */}
+        <div className="pointer-events-none absolute inset-0 -z-20">
+          <div className="absolute -top-1/3 left-0 h-[150%] w-full bg-gradient-to-tr from-[--accent-primary]/30 via-purple-300/20 to-transparent blur-3xl" />
         </div>
 
-        <div className="relative z-10 mx-auto max-w-5xl px-6 py-20 text-center flex flex-col items-center gap-6">
-          <h1 className="text-3xl font-extrabold tracking-tight text-white drop-shadow-lg">
-            Welcome back{greetingAddon}
-          </h1>
+        {isEmployer && (
+          <div className="absolute inset-0 -z-10">
+            <Image
+              src="/images/dashboard-hero.jpg"
+              alt="Dashboard banner"
+              fill
+              priority
+              sizes="100vw"
+              className="object-cover"
+            />
+            <div className="absolute inset-0 bg-white/40 backdrop-blur-sm" />
+          </div>
+        )}
 
-          <p className="max-w-lg text-white/90">
+        <div className="relative z-10 mx-auto flex max-w-5xl flex-col items-center gap-6 px-6 py-24 text-center">
+          <h1 className="text-4xl font-extrabold tracking-tight text-neutral-900 drop-shadow-sm">
+            <Typewriter text={`Welcome back${greetingAddon}`} speed={50} />
+          </h1>
+          <p className="max-w-lg text-neutral-700">
             {isEmployer ? (
               <>Pipeline connects you with top talent — and your AI assistant is ready to help.</>
             ) : (
@@ -204,57 +262,68 @@ export default function DashboardPage() {
             )}
           </p>
 
-          {/* Voice Agent CTA (no onClick fallback) */}
-          <Card
-            onPointerDown={(e) => {
-              (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-              handleAgentPressStart();
-            }}
-            onPointerUp={(e) => {
-              (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-              handleAgentPressEnd();
-            }}
-            onPointerCancel={handleAgentPressEnd}
-            className="relative flex max-w-md cursor-pointer items-center gap-4 rounded-3xl bg-white/90 p-6 shadow-lg transition hover:shadow-xl active:scale-[0.97]"
-          >
-            <span className="grid size-14 place-items-center rounded-full bg-primary/10 text-primary shadow-md">
-              {va?.isRecording ? (
-                <span className="animate-pulse text-lg">●</span>
-              ) : (
-                <Mic className="h-7 w-7" />
-              )}
-            </span>
-            <div className="flex-1 text-left">
-              <h2 className="text-lg font-semibold text-primary">
-                Talk to your Pipeline&nbsp;Agent
-              </h2>
-              <p className="text-xs text-muted-foreground">
-                Hold (space/enter works too) to start a conversation.
-              </p>
-            </div>
-          </Card>
+          {/* voice agent CTA – press & hold */}
+          <div className="relative inline-block">
+            <Card
+              role="button"
+              tabIndex={0}
+              onPointerDown={(e) => {
+                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                startAgent();
+              }}
+              onPointerUp={(e) => {
+                (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+                stopAgent();
+              }}
+              onPointerCancel={stopAgent}
+              onKeyDown={(e) =>
+                ["Space", "Enter"].includes(e.code) && (e.preventDefault(), startAgent())
+              }
+              onKeyUp={(e) => ["Space", "Enter"].includes(e.code) && stopAgent()}
+              className="relative flex max-w-md cursor-pointer items-center gap-4 rounded-3xl bg-white/90 p-6 shadow-lg transition hover:shadow-xl active:scale-[0.97] focus:outline-none focus:ring-4 focus:ring-[--accent-primary]/50"
+            >
+              <span className="relative grid size-14 place-items-center rounded-full bg-primary/10 text-primary shadow-md">
+                {va?.isRecording ? (
+                  <>
+                    <span className="absolute inset-0 animate-ping rounded-full bg-primary opacity-25" />
+                    <Mic className="relative h-7 w-7" />
+                  </>
+                ) : (
+                  <Mic className="h-7 w-7" />
+                )}
+              </span>
+              <div className="flex-1 text-left">
+                <h2 className="text-lg font-semibold text-primary">Talk to your Pipeline&nbsp;Agent</h2>
+                <p className="text-xs text-muted-foreground">Press & hold (space/enter) to speak.</p>
+              </div>
+            </Card>
+
+            {showTooltip && (
+              <div className="absolute -top-10 left-1/2 -translate-x-1/2 -translate-y-full rounded-md bg-black px-3 py-2 text-xs text-white shadow-md">
+                Hold to talk
+                <div className="absolute left-1/2 bottom-0 -translate-x-1/2 translate-y-full h-3 w-3 rotate-45 bg-black" />
+              </div>
+            )}
+          </div>
 
           <button
             onClick={logout}
-            className="inline-flex items-center gap-1 rounded-md bg-white/10 px-4 py-2 text-sm font-medium text-white ring-1 ring-white/20 backdrop-blur-md transition hover:bg-white/20"
+            className="inline-flex items-center gap-1 rounded-md bg-black/10 px-4 py-2 text-sm font-medium text-black ring-1 ring-black/10 backdrop-blur transition hover:bg-black/20"
           >
             <LogOut className="h-4 w-4" /> Log out
           </button>
         </div>
       </section>
 
-
-      {/* Dashboard content */}
-      <section className="bg-gray-50/60 pt-16 pb-24">
+      {/* ------------------------------ main content ------------------------ */}
+      <section className="relative bg-gradient-to-b from-transparent via-[#f8fbff] to-[#eef4ff] pt-16 pb-24">
         <div className="mx-auto max-w-6xl px-6">
-          {isEmployer && !loadingInternships && myInternships.length === 0 ? (
-            <div className="max-w-md mx-auto">
-              <Card className="rounded-xl border-2 border-dashed border-gray-300 p-6 text-center">
+          {isEmployer && myInternships.length === 0 ? (
+            <div className="mx-auto max-w-md">
+              <Card className="rounded-xl border-2 border-dashed border-gray-300 bg-white/80 p-6 text-center shadow-sm backdrop-blur">
                 <CardContent className="space-y-4">
                   <Briefcase className="mx-auto h-8 w-8 text-gray-400" />
-                  <p className="text-sm text-muted-foreground">
-                    You haven’t posted any internships yet.
-                  </p>
+                  <p className="text-sm text-neutral-600">You haven’t posted any internships yet.</p>
                   <Link
                     href="/employer/internships?tab=new"
                     className={cn(buttonVariants({ variant: "default" }), "block")}
@@ -266,85 +335,123 @@ export default function DashboardPage() {
             </div>
           ) : (
             <>
-              {/* Summary metrics */}
+              {/* metrics */}
               <motion.div
                 className="grid grid-cols-1 gap-4 sm:grid-cols-3"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, ease: "easeOut" }}
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true, amount: 0.2 }}
+                variants={{
+                  hidden: { opacity: 0, y: 20 },
+                  visible: { opacity: 1, y: 0, transition: { duration: 0.5, staggerChildren: 0.1 } },
+                }}
               >
                 {isIntern && (
                   <>
-                    <SummaryMetric icon={UserCheck} label="Profile Completion">
-                      {loadingProfile ? "…" : `${profileCompletion}%`}
-                    </SummaryMetric>
-                    <SummaryMetric icon={Send} label="Applications Submitted">
-                      {loadingProfile ? "…" : "0"}
-                    </SummaryMetric>
-                    <SummaryMetric icon={Lightbulb} label="AI Tip">
-                      Ask your agent to suggest profile improvements.
-                    </SummaryMetric>
+                    <div className={metricWrapper}>
+                      <MetricCard
+                        icon={UserCheck}
+                        label="Profile Completion"
+                        value={profileCompletion}
+                        suffix="%"
+                      />
+                    </div>
+                    <div className={metricWrapper}>
+                      <MetricCard icon={Send} label="Applications Submitted" value={0} />
+                    </div>
+                    <div className={metricWrapper}>
+                      <MetricCard
+                        icon={Briefcase}
+                        label="Open Internships"
+                        value={openInternships.length}
+                      />
+                    </div>
                   </>
                 )}
 
                 {isEmployer && (
                   <>
-                    <SummaryMetric icon={Briefcase} label="Internship Postings">
-                      {loadingInternships ? "…" : myInternships.length}
-                    </SummaryMetric>
-                    <SummaryMetric icon={Send} label="Pending Applications">
-                      {loadingInternships
-                        ? "…"
-                        : myInternships.reduce(
-                            (sum, job) => sum + (job.applications_count ?? 0),
-                            0
-                          )}
-                    </SummaryMetric>
-                    <SummaryMetric icon={Lightbulb} label="Recent Activity">
-                      {loadingInternships
-                        ? "…"
-                        : myInternships.length
-                        ? (() => {
-                            const lastDate = new Date(
-                              Math.max(
-                                ...myInternships.map((j) =>
-                                  new Date(j.posted_at).getTime()
-                                )
-                              )
-                            );
-                            const diff = Math.floor(
-                              (Date.now() - lastDate.getTime()) / 86_400_000
-                            );
-                            if (diff === 0) return "Last posting: Today";
-                            if (diff === 1) return "Last posting: Yesterday";
-                            if (diff < 7) return `Last posting: ${diff} days ago`;
-                            return `Last posting: ${lastDate.toLocaleDateString()}`;
-                          })()
-                        : "No recent activity"}
-                    </SummaryMetric>
+                    <div className={metricWrapper}>
+                      <MetricCard icon={Briefcase} label="Internship Postings" value={myInternships.length} />
+                    </div>
+                    <div className={metricWrapper}>
+                      <MetricCard
+                        icon={Send}
+                        label="Pending Applications"
+                        value={myInternships.reduce((sum, j) => sum + (j.applications_count ?? 0), 0)}
+                      />
+                    </div>
+                    <div className={metricWrapper}>
+                      <MetricCard icon={Lightbulb} label="Recent Activity">
+                        {myInternships.length
+                          ? (() => {
+                              const last = new Date(
+                                Math.max(...myInternships.map((j) => new Date(j.posted_at).getTime())),
+                              );
+                              const diff = Math.floor((Date.now() - last.getTime()) / 86_400_000);
+                              if (diff === 0) return "Last posting: Today";
+                              if (diff === 1) return "Last posting: Yesterday";
+                              if (diff < 7) return `Last posting: ${diff} days ago`;
+                              return `Last posting: ${last.toLocaleDateString()}`;
+                            })()
+                          : "No recent activity"}
+                      </MetricCard>
+                    </div>
                   </>
                 )}
               </motion.div>
 
-              {/* Quick-link tiles */}
+              {/* tips carousel */}
+              {isIntern && (
+                <motion.div
+                  className="mt-10"
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, amount: 0.2 }}
+                  transition={{ duration: 0.5, delay: 0.1 }}
+                >
+                  <TipCarousel />
+                </motion.div>
+              )}
+
+              {/* activity feed */}
+              {isIntern && openInternships.length > 0 && (
+                <motion.div
+                  className="mt-8"
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, amount: 0.2 }}
+                  transition={{ duration: 0.5, delay: 0.15 }}
+                >
+                  <ActivityFeed items={openInternships.slice(0, 5)} />
+                </motion.div>
+              )}
+
+              {/* quick links */}
               <motion.div
                 className="mt-12 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, ease: "easeOut", delay: 0.1 }}
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true, amount: 0.2 }}
+                variants={{
+                  hidden: { opacity: 0, y: 20 },
+                  visible: { opacity: 1, y: 0, transition: { duration: 0.5, staggerChildren: 0.05 } },
+                }}
               >
                 {tiles.map(({ href, icon, title, desc }) => (
-                  <Link key={href} href={href} className="group">
-                    <Card className="h-full rounded-2xl border border-transparent bg-white shadow-sm ring-1 ring-gray-200 transition hover:-translate-y-1 hover:shadow-md">
+                  <Link
+                    key={href}
+                    href={href}
+                    className="group focus:outline-none focus:ring-4 focus:ring-[--accent-primary]/50"
+                  >
+                    <Card className="h-full rounded-2xl bg-white/80 backdrop-blur ring-1 ring-gray-200 shadow-sm transition group-hover:-translate-y-1 group-hover:shadow-md">
                       <CardHeader className="flex flex-row items-center gap-3 pb-0">
                         <div className="grid h-10 w-10 place-items-center rounded-lg bg-primary/10 text-primary transition group-hover:bg-primary group-hover:text-white">
                           {icon}
                         </div>
                         <CardTitle className="text-lg">{title}</CardTitle>
                       </CardHeader>
-                      <CardContent className="pt-3 text-sm text-muted-foreground">
-                        {desc}
-                      </CardContent>
+                      <CardContent className="pt-3 text-sm text-neutral-600">{desc}</CardContent>
                     </Card>
                   </Link>
                 ))}
@@ -353,6 +460,9 @@ export default function DashboardPage() {
           )}
         </div>
       </section>
+
+      {/* Footer */}
+      <Footer />
     </main>
   );
 }
