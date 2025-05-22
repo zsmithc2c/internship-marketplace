@@ -1,6 +1,12 @@
+// frontend/src/hooks/useEmployerProfile.ts
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  type UseQueryOptions,
+} from "@tanstack/react-query";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
 
 /* -------------------- types -------------------- */
@@ -20,7 +26,9 @@ async function getEmployerProfile(): Promise<EmployerProfile> {
   return res.json();
 }
 
-async function putEmployerProfile(data: Partial<EmployerProfile>): Promise<EmployerProfile> {
+async function putEmployerProfile(
+  data: Partial<EmployerProfile>,
+): Promise<EmployerProfile> {
   const res = await fetchWithAuth("/api/employer/me", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -31,11 +39,21 @@ async function putEmployerProfile(data: Partial<EmployerProfile>): Promise<Emplo
 }
 
 /* -------------------- hooks -------------------- */
-export function useEmployerProfile() {
-  return useQuery({
+
+/**
+ * Fetch the logged-in employer’s profile.
+ *
+ * @param options Optional React-Query options — pass `{ enabled: false }`
+ *                if you want to disable the query for non-employer users.
+ */
+export function useEmployerProfile(
+  options: Partial<UseQueryOptions<EmployerProfile>> = {},
+) {
+  return useQuery<EmployerProfile>({
     queryKey: ["employer", "me"],
     queryFn: getEmployerProfile,
-    staleTime: 60 * 1000, // 1 minute
+    staleTime: 60_000, // 1 minute
+    ...options,        // allow caller overrides (enabled, staleTime, etc.)
   });
 }
 

@@ -1,7 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { jwtDecode } from "jwt-decode";
 import { useRouter } from "next/navigation";
+
+interface JwtPayload {
+  role: string;
+  exp: number;
+  iat: number;
+}
 
 export default function Login() {
   const router = useRouter();
@@ -20,15 +27,24 @@ export default function Login() {
       const data = await res.json();
       localStorage.setItem("access", data.access);
       localStorage.setItem("refresh", data.refresh);
-      router.push("/dashboard");
-    } else {
-        const text = await res.text();
-        try {
-          const data = JSON.parse(text);
-          setError(JSON.stringify(data));
-        } catch {
-          setError(text);   // plain HTML or string
+      try {
+        const { role } = jwtDecode<JwtPayload>(data.access);
+        if (role === "EMPLOYER") {
+          router.push("/employer/dashboard");
+        } else {
+          router.push("/dashboard");
         }
+      } catch {
+        router.push("/dashboard");
+      }
+    } else {
+      const text = await res.text();
+      try {
+        const data = JSON.parse(text);
+        setError(JSON.stringify(data));
+      } catch {
+        setError(text);   // plain HTML or string
+      }
     }
   }
 

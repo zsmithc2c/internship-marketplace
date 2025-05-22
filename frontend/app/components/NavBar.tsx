@@ -6,46 +6,61 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 
 /* ------------------------------------------------------------------ */
-/*  Links (default vs. employer)                                      */
+/*  Link sets for each role                                           */
 /* ------------------------------------------------------------------ */
-const defaultLinks = [
-  { href: "/dashboard",  label: "Dashboard" },
-  { href: "/account",    label: "Account"   },
-  { href: "/profile",    label: "Profile"   },
-  { href: "/internships", label: "Internships" },
+const internLinks = [
+  { href: "/dashboard",   label: "Dashboard"  },
+  { href: "/profile",     label: "Profile"    },
+  { href: "/account",     label: "Account"    },
+  { href: "/internships", label: "Internships"},
 ];
 
 const employerLinks = [
-  { href: "/employer/dashboard",   label: "Employer Dashboard" },
-  { href: "/employer/profile",     label: "Profile"            },
-  { href: "/employer/internships", label: "Internships"        },
-  { href: "/employer/account",     label: "Account"            },
+  { href: "/employer/dashboard",   label: "Dashboard"   },
+  { href: "/employer/profile",     label: "Profile"     },
+  { href: "/employer/internships", label: "Internships" },
+  { href: "/employer/account",     label: "Account"     },
 ];
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                         */
 /* ------------------------------------------------------------------ */
 export default function NavBar() {
-  /* `usePathname()` returns `string | null` during SSR ─ add a fallback */
-  const pathname = usePathname() ?? "/";     // ← null-safe
-  const { user } = useAuth();
+  const pathname = usePathname() ?? "/";
+  const { user }  = useAuth();           // { role?: "EMPLOYER" | "INTERN" | ... }
 
-  const links = user?.role === "EMPLOYER" ? employerLinks : defaultLinks;
-  const accent   = user?.role === "EMPLOYER" ? "bg-[--accent-employer]" : "bg-primary";
+  /* ----------------------------------------------------------------
+     We normalise the role string to guard against any casing issues
+     coming from the backend or localStorage (“Employer”, “employer”).
+  ---------------------------------------------------------------- */
+  const role = user?.role?.toString().toUpperCase() ?? null;
+  const isEmployer = role === "EMPLOYER";
+
+  /*  Fallback:  if we don't have user info yet (first render)        *
+   *  infer role from the current URL – avoids “jumping” menus.       */
+  const isEmployerPath = pathname.startsWith("/employer");
+  const finalIsEmployer = isEmployer || (!role && isEmployerPath);
+
+  const links   = finalIsEmployer ? employerLinks : internLinks;
+  const accent  = finalIsEmployer ? "bg-[--accent-employer]" : "bg-primary";
+  const homeURL = finalIsEmployer ? "/employer/dashboard" : "/dashboard";
 
   return (
     <header
       className="fixed inset-x-0 top-0 z-50 flex h-14 items-center justify-between
-                 gap-2 rounded-b-xl border-b border-white/10 bg-neutral-900/60
-                 px-6 shadow-sm backdrop-blur-md transition-colors"
+                 gap-2 border-b border-white/10 bg-neutral-900/60
+                 px-6 shadow-sm backdrop-blur-md"
     >
-      {/* logo / brand */}
-      <Link href="/dashboard" className="text-xl font-semibold tracking-tight text-white">
+      {/* Brand / logo */}
+      <Link
+        href={homeURL}
+        className="text-xl font-semibold tracking-tight text-white"
+      >
         Pipeline
       </Link>
 
-      {/* nav links */}
-      <nav className="hidden md:flex items-center gap-4 text-sm font-medium text-neutral-200">
+      {/* Nav links */}
+      <nav className="hidden items-center gap-4 text-sm font-medium text-neutral-200 md:flex">
         {links.map(({ href, label }) => {
           const active = pathname.startsWith(href);
           return (

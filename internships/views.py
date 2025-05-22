@@ -3,8 +3,9 @@ from rest_framework.exceptions import PermissionDenied
 
 from accounts.models import User
 from employers.models import Employer
+from employers.serializers import ApplicationSerializer
 
-from .models import Internship
+from .models import Application, Internship
 from .serializers import InternshipSerializer
 
 
@@ -64,3 +65,42 @@ class InternshipDetail(generics.RetrieveUpdateDestroyAPIView):
         return Internship.objects.select_related("employer").filter(
             employer__user=self.request.user
         )
+
+
+# **New:** List all applications for a specific internship (employer-only)
+class ApplicationList(generics.ListAPIView):
+    serializer_class = ApplicationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        # Must be an authenticated employer
+        if (
+            not self.request.user.is_authenticated
+            or self.request.user.role != User.Role.EMPLOYER
+        ):
+            raise PermissionDenied(
+                "Only authenticated employers can view applications."
+            )
+        try:
+            employer = self.request.user.employer
+        except Employer.DoesNotExist:
+            raise PermissionDenied("No employer profile found for this user.")
+        internship_id = self.kwargs["pk"]
+        # Ensure the internship belongs to this employer
+        Internship.objects.get(
+            id=internship_id, employer=employer
+        )  # will raise DoesNotExist if not owned
+        # Return all applications for the internship
+        return Application.objects.filter(internship_id=internship_id).select_related(
+            "intern"
+        )
+
+
+# **New:** Allow the employer to accept or reject an application by updating its status
+class ApplicationDetail(generics.UpdateAPIView):
+    serializer_class = ApplicationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        # Only allow updates to applications for internships owned by the current employer
+        return Application.objects.filter(internship__employer__user=self.request.user)

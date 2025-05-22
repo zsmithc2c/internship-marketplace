@@ -2,45 +2,87 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Image as ImageIcon, Building } from "lucide-react";
 import {
   useEmployerProfile,
   useUpdateEmployerProfile,
+  EmployerProfile,
 } from "@/hooks/useEmployerProfile";
 
+/*──────────────────────── helpers ────────────────────────*/
+const BLANK: EmployerProfile = {
+  id: 0,
+  company_name: "",
+  mission: "",
+  location: "",
+  website: "",
+  logo: null,
+};
+
+const accentBtn = "bg-emerald-600 hover:bg-emerald-700 text-white";
+
+/*──────────────────── component ──────────────────────────*/
 export default function EmployerProfilePage() {
-  const { data: employer, isLoading, error } = useEmployerProfile();
-  const updateProfile = useUpdateEmployerProfile();
+  /* data */
+  const {
+    data: profile,
+    isLoading,
+    error: loadErr,
+  } = useEmployerProfile();
 
-  /* ───── local form state ───── */
-  const [formData, setFormData] = useState({
-    company_name: "",
-    mission: "",
-    location: "",
-    website: "",
-  });
+  const {
+    mutate: saveProfile,
+    isPending: saving,
+    isSuccess,
+    error: saveErr,
+  } = useUpdateEmployerProfile();
 
-  /* ───── populate form once data arrives ───── */
+  /* local state */
+  const [form, setForm] = useState<EmployerProfile>(BLANK);
+  const [dirty, setDirty] = useState(false);
+
   useEffect(() => {
-    if (employer) {
-      setFormData({
-        company_name: employer.company_name ?? "",
-        mission: employer.mission ?? "",
-        location: employer.location ?? "",
-        website: employer.website ?? "",
-      });
+    if (profile) {
+      setForm(profile);
+      setDirty(false);
     }
-  }, [employer]);
+  }, [profile]);
 
-  /* ───── loading / error states ───── */
+  /* field helpers */
+  const set = (k: keyof EmployerProfile, v: string | null) => {
+    setForm({ ...form, [k]: v });
+    setDirty(true);
+  };
+
+  const pickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const dataUrl = await new Promise<string>((res) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result as string);
+      r.readAsDataURL(file);
+    });
+    set("logo", dataUrl);
+  };
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { id, ...payload } = form;
+    saveProfile(payload);
+  };
+
+  const reset = () => profile && setForm(profile);
+
+  /* loading / error */
   if (isLoading) {
     return (
       <main className="grid min-h-screen place-items-center">
@@ -48,136 +90,194 @@ export default function EmployerProfilePage() {
       </main>
     );
   }
-  if (error) {
+  if (loadErr) {
     return (
       <main className="grid min-h-screen place-items-center px-6">
         <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 shadow">
-          {(error as Error).message}
+          {(loadErr as Error).message}
         </p>
       </main>
     );
   }
-  if (!employer) {
-    return (
-      <main className="grid min-h-screen place-items-center">
-        <p>No employer profile data.</p>
-      </main>
-    );
-  }
 
-  /* ───── render page ───── */
+  /*──────────────────── render ──────────────────────────*/
   return (
     <main className="min-h-screen bg-gray-50/60 pt-14">
-      <section className="mx-auto max-w-3xl px-6 pb-20">
-        <Card className="rounded-3xl shadow-lg transition-shadow hover:shadow-xl">
-          <CardHeader className="flex items-center gap-3 border-b bg-gradient-to-r from-background to-muted/50 rounded-t-3xl p-6">
-            <Building className="h-6 w-6 text-[--accent-employer]" />
-            <CardTitle className="text-xl font-semibold">
-              Company Profile
-            </CardTitle>
-          </CardHeader>
+      <section className="mx-auto max-w-4xl space-y-10 px-6 py-16">
+        <header className="flex items-center justify-between">
+          <h1 className="text-3xl font-semibold">Company Profile</h1>
+          <Link href="/employer/dashboard" className="text-sm underline">
+            ← back to dashboard
+          </Link>
+        </header>
 
-          <CardContent className="space-y-6 p-6">
-            <form
-              className="space-y-6"
-              onSubmit={(e) => {
-                e.preventDefault();
-                updateProfile.mutate(formData);
-              }}
-            >
-              {/* Logo (read-only for now) */}
-              <div>
-                <label className="mb-1 block text-sm font-medium">Logo</label>
-                <div className="flex items-center gap-4">
-                  {employer.logo ? (
+        <form onSubmit={submit} className="space-y-8">
+          {/*──────── Brand card ────────*/}
+          <Card>
+            <CardHeader>
+              <CardTitle>Brand</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-6 sm:grid-cols-[120px_1fr]">
+                {/* logo */}
+                <div className="flex flex-col items-center gap-3 sm:items-start">
+                  {form.logo ? (
                     <Image
-                      src={employer.logo}
-                      alt="Company logo"
-                      width={64}
-                      height={64}
-                      className="rounded-full object-cover"
+                      src={form.logo}
+                      alt={form.company_name || "Logo"}
+                      width={96}
+                      height={96}
+                      className="h-24 w-24 rounded-lg object-cover ring-1 ring-muted-foreground/20"
                     />
                   ) : (
-                    <div className="grid h-16 w-16 place-items-center rounded-full bg-muted/50 shadow-inner">
-                      <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                    <div className="flex h-24 w-24 items-center justify-center rounded-lg bg-muted">
+                      <span className="text-sm text-muted-foreground">No&nbsp;logo</span>
                     </div>
                   )}
-                  <span className="text-sm text-muted-foreground">
-                    Company logo
-                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    id="logoPicker"
+                    onChange={pickFile}
+                    hidden
+                  />
+                  <label
+                    htmlFor="logoPicker"
+                    className="cursor-pointer rounded bg-gray-100 px-2 py-1 text-xs font-medium hover:bg-gray-200"
+                  >
+                    {form.logo ? "Replace logo" : "Upload logo"}
+                  </label>
                 </div>
-              </div>
 
-              {/* Company name */}
-              <div>
-                <label className="mb-1 block text-sm font-medium">Name</label>
-                <Input
-                  type="text"
-                  placeholder="Company name"
-                  value={formData.company_name}
-                  onChange={(e) =>
-                    setFormData({ ...formData, company_name: e.target.value })
-                  }
+                {/* company name */}
+                <InputBlock
+                  label="Company name"
+                  required
+                  value={form.company_name}
+                  onChange={(v) => set("company_name", v)}
                 />
               </div>
+            </CardContent>
+          </Card>
 
-              {/* Mission */}
-              <div>
-                <label className="mb-1 block text-sm font-medium">Mission</label>
-                <textarea
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[--accent-primary] focus-visible:ring-offset-2"
-                  rows={4}
-                  placeholder="Company mission or tagline"
-                  value={formData.mission}
-                  onChange={(e) =>
-                    setFormData({ ...formData, mission: e.target.value })
-                  }
+          {/*──────── Mission card ────────*/}
+          <Card>
+            <CardHeader>
+              <CardTitle>Mission</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <TextAreaBlock
+                rows={4}
+                placeholder="What drives your company?"
+                value={form.mission}
+                onChange={(v) => set("mission", v)}
+              />
+            </CardContent>
+          </Card>
+
+          {/*──────── Details card ────────*/}
+          <Card>
+            <CardHeader>
+              <CardTitle>Details</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-6 sm:grid-cols-2">
+                <InputBlock
+                  label="Location"
+                  placeholder="City, Country (optional)"
+                  value={form.location}
+                  onChange={(v) => set("location", v)}
                 />
-              </div>
-
-              {/* Location */}
-              <div>
-                <label className="mb-1 block text-sm font-medium">
-                  Location
-                </label>
-                <Input
-                  type="text"
-                  placeholder="Headquarters or Remote"
-                  value={formData.location}
-                  onChange={(e) =>
-                    setFormData({ ...formData, location: e.target.value })
-                  }
-                />
-              </div>
-
-              {/* Website */}
-              <div>
-                <label className="mb-1 block text-sm font-medium">Website</label>
-                <Input
-                  type="text"
+                <InputBlock
+                  label="Website"
+                  type="url"
+                  pattern="https?://.*"
                   placeholder="https://example.com"
-                  value={formData.website}
-                  onChange={(e) =>
-                    setFormData({ ...formData, website: e.target.value })
-                  }
+                  value={form.website}
+                  onChange={(v) => set("website", v)}
                 />
               </div>
+            </CardContent>
+          </Card>
 
-              {/* Mutation errors */}
-              {updateProfile.error && (
-                <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 shadow">
-                  {(updateProfile.error as Error).message}
-                </p>
-              )}
+          {/*──────── actions ────────*/}
+          {saveErr && <ErrorNote err={saveErr} />}
 
-              {/* Save Button */}
-              <Button type="submit" disabled={updateProfile.isPending}>
-                {updateProfile.isPending ? "Saving…" : "Save Changes"}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
+          <div className="flex flex-wrap items-center gap-4">
+            <Button
+              type="submit"
+              disabled={saving}
+              className={`${accentBtn} disabled:opacity-60`}
+            >
+              {saving ? "Saving…" : "Save changes"}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={reset}
+              disabled={!dirty || saving}
+            >
+              Reset
+            </Button>
+            {isSuccess && !saving && (
+              <span className="text-sm text-green-600">✓ Saved!</span>
+            )}
+          </div>
+        </form>
       </section>
     </main>
+  );
+}
+
+/*──────────────── reusable field blocks ────────────────*/
+function InputBlock(props: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  required?: boolean;
+  type?: string;
+  pattern?: string;
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-sm font-medium">
+        {props.label}
+        {props.required && <span className="text-red-500">*</span>}
+      </label>
+      <Input
+        value={props.value}
+        onChange={(e) => props.onChange(e.target.value)}
+        placeholder={props.placeholder}
+        required={props.required}
+        type={props.type}
+        pattern={props.pattern}
+      />
+    </div>
+  );
+}
+
+function TextAreaBlock(props: {
+  rows: number;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <textarea
+      rows={props.rows}
+      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+      value={props.value}
+      onChange={(e) => props.onChange(e.target.value)}
+      placeholder={props.placeholder}
+    />
+  );
+}
+
+function ErrorNote({ err }: { err: unknown }) {
+  return (
+    <p className="rounded bg-red-50 px-3 py-2 text-sm text-red-700">
+      {(err as Error).message}
+    </p>
   );
 }

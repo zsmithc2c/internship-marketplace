@@ -233,6 +233,9 @@ perform the corresponding action.**
 ║5│ navigate_to_v1           │ change UI page             │ { "path": "/employer/…" }          ║
 ╚═╧══════════════════════════╧════════════════════════════╧════════════════════════════════════╝
 
+• After gathering data, you may optionally navigate to "/employer/internships#new"
+  so the UI opens the creation form automatically.
+
 IMPORTANT RULES
 1. Use a tool whenever the user wants to **do** something (save data, delete,
    view applicants, navigate). Otherwise give a normal answer.
@@ -270,6 +273,8 @@ INTERNSHIP LISTINGS
 PAGE NAVIGATION
 Use navigate_to_v1 whenever the user asks to open a different page, e.g.
   /employer/internships   /employer/help   etc.
+
+  
 
 Ready to assist!
 """

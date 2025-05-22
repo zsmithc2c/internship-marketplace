@@ -65,8 +65,14 @@ export default function VoiceAgentChat() {
       {/* MIC BUTTON */}
       <div className="flex justify-center">
         <button
-          onPointerDown={start}
-          onPointerUp={stop}
+          onPointerDown={(e) => {
+            (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+            start();
+          }}
+          onPointerUp={(e) => {
+            (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+            stop();
+          }}
           onPointerCancel={stop}
           className={`h-16 w-16 rounded-full bg-red-600 text-white transition-all hover:scale-105 active:scale-95 ${
             isRecording ? "animate-pulse" : ""
