@@ -49,7 +49,7 @@ function Typewriter({ text, speed = 50 }: { text: string; speed?: number }) {
 interface InternshipSummary {
   id: number;
   posted_at: string;
-  applications_count?: number; // ← typed so TS is happy
+  applications_count?: number;
 }
 const ROLE_LABEL: Record<string, string> = { INTERN: "Intern", EMPLOYER: "Employer" };
 const metricWrapper =
@@ -209,7 +209,6 @@ export default function DashboardPage() {
   const startAgent = () =>
     va?.start ? va.start() : router.push(isIntern ? "/profile/builder" : "/employer/profile#agent");
   const stopAgent = () => va?.stop?.();
-  const toggleAgent = () => (va?.isRecording ? stopAgent() : startAgent());
 
   /* ─────────────────────────────── UI ─────────────────────────── */
   return (
@@ -244,17 +243,37 @@ export default function DashboardPage() {
               : "Pipeline matches ambitious students with curated internships — your AI mentor is ready to help."}
           </p>
 
-          {/* voice agent CTA – matches original styling */}
+          {/* voice agent CTA - press-and-hold behaviour fixed */}
           <div className="relative inline-block">
             <Card
               role="button"
               tabIndex={0}
-              onClick={toggleAgent}
-              onPointerDown={(e) => (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)}
-              onPointerUp={(e) => (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)}
-              onKeyDown={(e) =>
-                ["Space", "Enter"].includes(e.code) && (e.preventDefault(), toggleAgent())
-              }
+              /* pointer interactions */
+              onPointerDown={(e) => {
+                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                startAgent();
+              }}
+              onPointerUp={(e) => {
+                (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+                stopAgent();
+              }}
+              onPointerCancel={(e) => {
+                (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+                stopAgent();
+              }}
+              /* keyboard (hold Space / Enter) */
+              onKeyDown={(e) => {
+                if (["Space", "Enter"].includes(e.code) && !va?.isRecording) {
+                  e.preventDefault();
+                  startAgent();
+                }
+              }}
+              onKeyUp={(e) => {
+                if (["Space", "Enter"].includes(e.code) && va?.isRecording) {
+                  e.preventDefault();
+                  stopAgent();
+                }
+              }}
               className="relative flex max-w-md cursor-pointer items-center gap-4 rounded-3xl bg-white/90 p-6 shadow-lg transition hover:shadow-xl active:scale-[0.97] focus:outline-none focus:ring-4 focus:ring-[--accent-primary]/50"
             >
               <span className="relative grid size-14 place-items-center rounded-full bg-primary/10 text-primary shadow-md">
@@ -270,7 +289,7 @@ export default function DashboardPage() {
               <div className="flex-1 text-left">
                 <h2 className="text-lg font-semibold text-primary">Talk to your Pipeline&nbsp;Agent</h2>
                 <p className="text-xs text-muted-foreground">
-                  {va?.isRecording ? "Release or click to stop." : "Click or hold (space/enter) to talk."}
+                  {va?.isRecording ? "Release to stop." : "Hold (or Space/Enter) to talk."}
                 </p>
               </div>
             </Card>
