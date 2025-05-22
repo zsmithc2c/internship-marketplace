@@ -34,56 +34,38 @@ import {
   Lightbulb,
 } from "lucide-react";
 
-/* ------------------------------------------------------------------ */
-/*   very-small typewriter (no extra deps)                            */
-/* ------------------------------------------------------------------ */
-function Typewriter({
-  text,
-  speed = 50,
-  loop = false,
-}: {
-  text: string;
-  speed?: number;
-  loop?: boolean;
-}) {
+/* ───────────────── Typewriter (tiny, no extra deps) ───────────── */
+function Typewriter({ text, speed = 50 }: { text: string; speed?: number }) {
   const [idx, setIdx] = useState(0);
-
   useEffect(() => {
-    if (idx === text.length) {
-      if (!loop) return;
-      const pause = setTimeout(() => setIdx(0), 1200);
-      return () => clearTimeout(pause);
-    }
+    if (idx === text.length) return;
     const t = setTimeout(() => setIdx((i) => i + 1), speed);
     return () => clearTimeout(t);
-  }, [idx, text, speed, loop]);
-
+  }, [idx, text, speed]);
   return <span>{text.slice(0, idx)}</span>;
 }
-/* ------------------------------------------------------------------ */
 
+/* ───────────────── Types / constants ──────────────────────────── */
 interface InternshipSummary {
   id: number;
   posted_at: string;
-  applications_count?: number;
+  applications_count?: number; // ← typed so TS is happy
 }
 const ROLE_LABEL: Record<string, string> = { INTERN: "Intern", EMPLOYER: "Employer" };
-const metricWrapper = "rounded-xl bg-white/80 backdrop-blur ring-1 ring-gray-200 shadow-sm";
+const metricWrapper =
+  "rounded-xl bg-white/80 backdrop-blur ring-1 ring-gray-200 shadow-sm";
 
-/* =============================================================== */
-/*   Footer – display-only links                                   */
-/* =============================================================== */
+/* ───────────────── Footer (display-only links) ────────────────── */
 function Footer() {
   return (
     <footer className="mt-auto bg-gray-900 text-white">
-      <div className="mx-auto max-w-6xl px-6 py-10 grid grid-cols-1 gap-8 sm:grid-cols-3">
+      <div className="mx-auto max-w-6xl grid gap-8 px-6 py-10 sm:grid-cols-3">
         <div>
           <h3 className="text-lg font-semibold">Pipeline</h3>
           <p className="mt-2 max-w-xs text-sm text-gray-300">
             Connecting ambitious talent with innovative companies.
           </p>
         </div>
-
         <nav className="space-y-2 text-sm text-gray-400">
           <span className="block">About</span>
           <span className="block">Privacy</span>
@@ -91,7 +73,6 @@ function Footer() {
           <span className="block">Contact</span>
         </nav>
       </div>
-
       <div className="border-t border-gray-800 py-4 text-center text-xs text-gray-400">
         © {new Date().getFullYear()} Pipeline. All rights reserved.
       </div>
@@ -99,21 +80,18 @@ function Footer() {
   );
 }
 
-/* ================================================================== */
+/* ───────────────────────── Dashboard page ─────────────────────── */
 export default function DashboardPage() {
   const router = useRouter();
   const { user, isLoading: authLoading, logout } = useAuth();
   const va = useVoiceAgentCtx();
 
-  /* ─── local state ─────────────────────────────────────────────── */
-  const [showTooltip, setShowTooltip] = useState(false);
-
-  /* ─── role helpers ────────────────────────────────────────────── */
+  /* role helpers */
   const role = user?.role;
   const isEmployer = role === "EMPLOYER";
   const isIntern = role === "INTERN";
 
-  /* ─── queries (run every render) ──────────────────────────────── */
+  /* queries */
   const { data: profile } = useProfile();
   const { data: employerProfile } = useEmployerProfile({ enabled: isEmployer });
   const { data: myInternships = [] } = useQuery<InternshipSummary[]>({
@@ -127,20 +105,17 @@ export default function DashboardPage() {
     staleTime: 60_000,
   });
 
-  /* ─── voice-agent tooltip (first visit) ───────────────────────── */
+  /* tooltip (first visit) */
+  const [showTooltip, setShowTooltip] = useState(false);
   useEffect(() => {
-    if (
-      isIntern &&
-      typeof window !== "undefined" &&
-      !localStorage.getItem("agentTooltipSeen")
-    ) {
+    if (isIntern && typeof window !== "undefined" && !localStorage.getItem("agentTooltipSeen")) {
       setShowTooltip(true);
       localStorage.setItem("agentTooltipSeen", "true");
       setTimeout(() => setShowTooltip(false), 5_000);
     }
   }, [isIntern]);
 
-  /* ─── confetti after first successful voice session ───────────── */
+  /* confetti after first successful voice session */
   useEffect(() => {
     if (
       isIntern &&
@@ -157,12 +132,11 @@ export default function DashboardPage() {
     }
   }, [isIntern, va?.history?.length]);
 
-  /* ─── auth guard ──────────────────────────────────────────────── */
+  /* auth guard */
   useEffect(() => {
     if (!authLoading && !user) router.replace("/login");
   }, [authLoading, user, router]);
 
-  /* ─── loading screen ──────────────────────────────────────────── */
   if (authLoading)
     return (
       <main className="grid min-h-screen place-items-center">
@@ -171,7 +145,7 @@ export default function DashboardPage() {
     );
   if (!user) return null;
 
-  /* ─── computed helpers ────────────────────────────────────────── */
+  /* helpers */
   const profileCompletion =
     profile &&
     Math.round(
@@ -185,6 +159,11 @@ export default function DashboardPage() {
         ].filter(Boolean).length / 5
       ) * 100,
     );
+
+  const greetingAddon =
+    isEmployer && employerProfile?.company_name
+      ? `, ${employerProfile.company_name}`
+      : `, ${ROLE_LABEL[role ?? ""] ?? "User"}`;
 
   const tiles = [
     {
@@ -226,23 +205,17 @@ export default function DashboardPage() {
       : []),
   ];
 
-  const greetingAddon =
-    isEmployer && employerProfile?.company_name
-      ? `, ${employerProfile.company_name}`
-      : `, ${ROLE_LABEL[role ?? ""] ?? "User"}`;
-
-  /* ─── voice-agent helpers – toggle like floating button ───────── */
+  /* voice-agent controls */
   const startAgent = () =>
     va?.start ? va.start() : router.push(isIntern ? "/profile/builder" : "/employer/profile#agent");
   const stopAgent = () => va?.stop?.();
   const toggleAgent = () => (va?.isRecording ? stopAgent() : startAgent());
 
-  /* ============================================================= */
+  /* ─────────────────────────────── UI ─────────────────────────── */
   return (
     <main className="flex min-h-screen flex-col bg-gradient-to-br from-[#f1f5ff] via-[#eef7ff] to-[#e6f4ff] text-black">
       {/* Hero */}
       <section className="relative isolate overflow-hidden">
-        {/* full-width gradient ribbon */}
         <div className="pointer-events-none absolute inset-0 -z-20">
           <div className="absolute -top-1/3 left-0 h-[150%] w-full bg-gradient-to-tr from-[--accent-primary]/30 via-purple-300/20 to-transparent blur-3xl" />
         </div>
@@ -263,17 +236,15 @@ export default function DashboardPage() {
 
         <div className="relative z-10 mx-auto flex max-w-5xl flex-col items-center gap-6 px-6 py-24 text-center">
           <h1 className="text-4xl font-extrabold tracking-tight text-neutral-900 drop-shadow-sm">
-            <Typewriter text={`Welcome back${greetingAddon}`} speed={50} />
+            <Typewriter text={`Welcome back${greetingAddon}`} />
           </h1>
           <p className="max-w-lg text-neutral-700">
-            {isEmployer ? (
-              <>Pipeline connects you with top talent — and your AI assistant is ready to help.</>
-            ) : (
-              <>Pipeline matches ambitious students with curated internships — your AI mentor is ready to help.</>
-            )}
+            {isEmployer
+              ? "Pipeline connects you with top talent — and your AI assistant is ready to help."
+              : "Pipeline matches ambitious students with curated internships — your AI mentor is ready to help."}
           </p>
 
-          {/* voice agent CTA – toggle on click, hold optional */}
+          {/* voice agent CTA – matches original styling */}
           <div className="relative inline-block">
             <Card
               role="button"
@@ -314,14 +285,14 @@ export default function DashboardPage() {
 
           <button
             onClick={logout}
-            className="inline-flex items-center gap-1 rounded-md bg-black/10 px-4 py-2 text-sm font-medium text-black ring-1 ring-black/10 backdrop-blur transition hover:bg-black/20"
+            className="mt-8 inline-flex items-center gap-1 rounded-md bg-black/10 px-4 py-2 text-sm font-medium text-black ring-1 ring-black/10 backdrop-blur transition hover:bg-black/20"
           >
             <LogOut className="h-4 w-4" /> Log out
           </button>
         </div>
       </section>
 
-      {/* ------------------------------ main content ------------------------ */}
+      {/* Main content */}
       <section className="relative bg-gradient-to-b from-transparent via-[#f8fbff] to-[#eef4ff] pt-16 pb-24">
         <div className="mx-auto max-w-6xl px-6">
           {isEmployer && myInternships.length === 0 ? (
@@ -349,7 +320,11 @@ export default function DashboardPage() {
                 viewport={{ once: true, amount: 0.2 }}
                 variants={{
                   hidden: { opacity: 0, y: 20 },
-                  visible: { opacity: 1, y: 0, transition: { duration: 0.5, staggerChildren: 0.1 } },
+                  visible: {
+                    opacity: 1,
+                    y: 0,
+                    transition: { duration: 0.5, staggerChildren: 0.1 },
+                  },
                 }}
               >
                 {isIntern && (
@@ -366,11 +341,7 @@ export default function DashboardPage() {
                       <MetricCard icon={Send} label="Applications Submitted" value={0} />
                     </div>
                     <div className={metricWrapper}>
-                      <MetricCard
-                        icon={Briefcase}
-                        label="Open Internships"
-                        value={openInternships.length}
-                      />
+                      <MetricCard icon={Briefcase} label="Open Internships" value={openInternships.length} />
                     </div>
                   </>
                 )}
@@ -384,7 +355,10 @@ export default function DashboardPage() {
                       <MetricCard
                         icon={Send}
                         label="Pending Applications"
-                        value={myInternships.reduce((sum, j) => sum + (j.applications_count ?? 0), 0)}
+                        value={myInternships.reduce(
+                          (sum, j) => sum + (j.applications_count ?? 0),
+                          0,
+                        )}
                       />
                     </div>
                     <div className={metricWrapper}>
@@ -407,30 +381,18 @@ export default function DashboardPage() {
                 )}
               </motion.div>
 
-              {/* tips carousel */}
+              {/* tips & activity feed */}
               {isIntern && (
-                <motion.div
-                  className="mt-10"
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true, amount: 0.2 }}
-                  transition={{ duration: 0.5, delay: 0.1 }}
-                >
-                  <TipCarousel />
-                </motion.div>
-              )}
-
-              {/* activity feed */}
-              {isIntern && openInternships.length > 0 && (
-                <motion.div
-                  className="mt-8"
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true, amount: 0.2 }}
-                  transition={{ duration: 0.5, delay: 0.15 }}
-                >
-                  <ActivityFeed items={openInternships.slice(0, 5)} />
-                </motion.div>
+                <>
+                  <div className="mt-10">
+                    <TipCarousel />
+                  </div>
+                  {openInternships.length > 0 && (
+                    <div className="mt-8">
+                      <ActivityFeed items={openInternships.slice(0, 5)} />
+                    </div>
+                  )}
+                </>
               )}
 
               {/* quick links */}
@@ -441,7 +403,11 @@ export default function DashboardPage() {
                 viewport={{ once: true, amount: 0.2 }}
                 variants={{
                   hidden: { opacity: 0, y: 20 },
-                  visible: { opacity: 1, y: 0, transition: { duration: 0.5, staggerChildren: 0.05 } },
+                  visible: {
+                    opacity: 1,
+                    y: 0,
+                    transition: { duration: 0.5, staggerChildren: 0.05 },
+                  },
                 }}
               >
                 {tiles.map(({ href, icon, title, desc }) => (
@@ -467,7 +433,6 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* Footer */}
       <Footer />
     </main>
   );

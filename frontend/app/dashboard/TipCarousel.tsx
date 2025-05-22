@@ -1,17 +1,28 @@
+/* app/dashboard/TipCarousel.tsx */
 "use client";
+
 import React from "react";
 import { Card } from "@/components/ui/card";
 import { Lightbulb } from "lucide-react";
 
 export default function TipCarousel() {
-  const tips: string[] = [
+  const tips = [
     "Complete your profile to increase your visibility to employers.",
-    "Use your Pipeline AI Agent to get resume or interview tips.",
+    "Use your Pipeline AI Agent to get résumé or interview tips.",
     "Check new internship listings regularly to find fresh opportunities.",
     "Tailor each application to the internship description for better results.",
   ];
+
   return (
-    <div className="flex overflow-x-auto space-x-4 px-1 py-2 scroll-smooth snap-x snap-mandatory">
+    /*  Tailwind classes +  inline style override the global ‘hide’ */
+    <div
+      className="flex overflow-x-auto space-x-4 px-1 py-2 scroll-smooth snap-x snap-mandatory"
+      style={{
+        /* Firefox & old Edge */
+        scrollbarWidth: "auto",
+        msOverflowStyle: "auto",
+      }}
+    >
       {tips.map((tip, idx) => (
         <Card
           key={idx}
@@ -23,6 +34,20 @@ export default function TipCarousel() {
           </div>
         </Card>
       ))}
+
+      {/* WebKit override (scoped) */}
+      <style jsx>{`
+        div::-webkit-scrollbar {
+          height: 8px;          /* show a small bar */
+        }
+        div::-webkit-scrollbar-thumb {
+          background: rgba(0, 0, 0, 0.25);
+          border-radius: 4px;
+        }
+        div::-webkit-scrollbar-track {
+          background: transparent;
+        }
+      `}</style>
     </div>
   );
 }

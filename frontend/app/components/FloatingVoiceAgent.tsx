@@ -1,4 +1,3 @@
-// frontend/app/components/FloatingVoiceAgent.tsx
 "use client";
 
 import { useState } from "react";
@@ -11,65 +10,69 @@ import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 
 export default function FloatingVoiceAgent() {
-  /* hooks must run unconditionally */
+  /* ------------------------------------------------------------------ */
+  /* context                                                             */
+  /* ------------------------------------------------------------------ */
   const { user } = useAuth();
   const va = useVoiceAgentCtx(); // null while logged-out
   const [open, setOpen] = useState(false);
 
-  /* if no auth or ctx yet, render nothing */
+  /* no auth or ctx yet → nothing to render */
   if (!user || !va) return null;
 
   const { isRecording, start, stop, sending } = va;
 
-  /* helpers */
-  const toggleSheet = () => setOpen((o) => !o);
+  /* ------------------------------------------------------------------ */
+  /* pointer helpers (press-and-hold)                                    */
+  /* ------------------------------------------------------------------ */
+  const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    start();
+  };
+  const handlePointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
+    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    stop();
+  };
 
-  /* bubble style */
+  /* ------------------------------------------------------------------ */
+  /* style helpers                                                       */
+  /* ------------------------------------------------------------------ */
   const bubbleCls = cn(
     "fixed bottom-6 right-6 z-50 grid size-16 place-items-center rounded-full text-white shadow-lg transition-all",
-    "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/50",
+    "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-white/50",
     isRecording
-      ? "bg-red-600 animate-pulse" // mic held
+      ? "bg-red-600 animate-pulse" // listening
       : sending
-      ? "bg-primary/90 after:absolute after:inset-0 after:rounded-full after:bg-primary/70 after:animate-ping"
-      : "bg-primary hover:-translate-y-1 hover:shadow-xl" // idle
+      ? "bg-black/90 after:absolute after:inset-0 after:rounded-full after:bg-white/70 after:animate-ping" // thinking
+      : "bg-black hover:-translate-y-1 hover:shadow-xl" // idle
   );
 
+  /* ------------------------------------------------------------------ */
+  /* render                                                              */
+  /* ------------------------------------------------------------------ */
   return (
     <>
-      {/* toast overlays everything */}
+      {/* toast overlay */}
       <ProfileSavedToast />
 
-      {/* chevron to open/close transcript */}
+      {/* chevron toggle */}
       <button
-        onClick={toggleSheet}
+        onClick={() => setOpen((o) => !o)}
         className="fixed bottom-[5.75rem] right-8 z-50 rounded-full bg-background/70 p-1 shadow-md backdrop-blur hover:shadow-lg"
         aria-label={open ? "Hide transcript" : "Show transcript"}
       >
-        <ChevronUp
-          className={cn("h-5 w-5 transition-transform", open && "rotate-180")}
-        />
+        <ChevronUp className={cn("h-5 w-5 transition-transform", open && "rotate-180")} />
       </button>
 
-      {/* mic bubble */}
+      {/* mic / bot bubble */}
       <button
-        onPointerDown={(e) => {
-          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-          start();
-        }}
-        onPointerUp={(e) => {
-          (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-          stop();
-        }}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
         onPointerCancel={stop}
         className={bubbleCls}
         aria-label="Hold to talk"
       >
-        {sending && !isRecording ? (
-          <Bot className="h-7 w-7" />
-        ) : (
-          <Mic className="h-7 w-7" />
-        )}
+        {sending && !isRecording ? <Bot className="h-7 w-7" /> : <Mic className="h-7 w-7" />}
       </button>
 
       {/* transcript slide-over */}
