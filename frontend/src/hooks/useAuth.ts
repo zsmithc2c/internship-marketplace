@@ -59,7 +59,16 @@ export function useAuth() {
     onSuccess: ({ access, refresh }) => {
       saveTokens(access, refresh);
       qc.invalidateQueries({ queryKey: ["auth", "me"] });
-      router.push("/dashboard");
+      try {
+        const { role } = jwtDecode<JwtPayload>(access);
+        if (role === "EMPLOYER") {
+          router.push("/employer/dashboard");
+        } else {
+          router.push("/dashboard");
+        }
+      } catch {
+        router.push("/dashboard");
+      }
     },
   });
 

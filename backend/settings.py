@@ -13,6 +13,11 @@ from dj_database_url import parse as db_url  # parses DATABASE_URL strings
 # ───────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# dev hosting
+ALLOWED_HOSTS = ["127.0.0.1", "localhost", ".ngrok.io", ".ngrok-free.app"]
+CSRF_TRUSTED_ORIGINS = ["https://*.ngrok.io", "https://*.ngrok-free.app"]
+
+
 # ───────────────────────────────────────────────────────────────
 # Security
 # ───────────────────────────────────────────────────────────────
@@ -21,7 +26,6 @@ SECRET_KEY = config(
     default="django-insecure-t3)d^wlmu#t*y0l^igykpzt6ri!ba_*=oia$as61g$j9ft0#m@",
 )
 DEBUG = config("DEBUG", default=True, cast=bool)
-ALLOWED_HOSTS: list[str] = []
 
 # ───────────────────────────────────────────────────────────────
 # Applications

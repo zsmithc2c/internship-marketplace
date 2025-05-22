@@ -5,26 +5,26 @@ import { useState } from "react";
 import { Sheet, SheetContent, SheetHeader } from "@/components/ui/sheet";
 import { Mic, ChevronUp, Bot } from "lucide-react";
 import VoiceAgentChat from "./VoiceAgentChat";
-import ProfileSavedToast from "./Toast";          // ← NEW
+import ProfileSavedToast from "./Toast";
 import { useVoiceAgentCtx } from "@/context/VoiceAgentContext";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 
 export default function FloatingVoiceAgent() {
-  /* ── hooks must run unconditionally ── */
+  /* hooks must run unconditionally */
   const { user } = useAuth();
-  const va = useVoiceAgentCtx(); // may be null when logged-out
+  const va = useVoiceAgentCtx(); // null while logged-out
   const [open, setOpen] = useState(false);
 
-  /* ── if no auth or ctx yet, render nothing ── */
+  /* if no auth or ctx yet, render nothing */
   if (!user || !va) return null;
 
   const { isRecording, start, stop, sending } = va;
 
-  /* ---------- UI helpers ---------- */
+  /* helpers */
   const toggleSheet = () => setOpen((o) => !o);
 
-  /* ---------- bubble style ---------- */
+  /* bubble style */
   const bubbleCls = cn(
     "fixed bottom-6 right-6 z-50 grid size-16 place-items-center rounded-full text-white shadow-lg transition-all",
     "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/50",
@@ -32,15 +32,15 @@ export default function FloatingVoiceAgent() {
       ? "bg-red-600 animate-pulse" // mic held
       : sending
       ? "bg-primary/90 after:absolute after:inset-0 after:rounded-full after:bg-primary/70 after:animate-ping"
-      : "bg-primary hover:-translate-y-1 hover:shadow-xl", // idle
+      : "bg-primary hover:-translate-y-1 hover:shadow-xl" // idle
   );
 
   return (
     <>
-      {/* toast lives at the very top of the fragment so it overlays everything */}
+      {/* toast overlays everything */}
       <ProfileSavedToast />
 
-      {/* small ↑ arrow to expand transcript */}
+      {/* chevron to open/close transcript */}
       <button
         onClick={toggleSheet}
         className="fixed bottom-[5.75rem] right-8 z-50 rounded-full bg-background/70 p-1 shadow-md backdrop-blur hover:shadow-lg"
@@ -53,8 +53,14 @@ export default function FloatingVoiceAgent() {
 
       {/* mic bubble */}
       <button
-        onPointerDown={start}
-        onPointerUp={stop}
+        onPointerDown={(e) => {
+          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+          start();
+        }}
+        onPointerUp={(e) => {
+          (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+          stop();
+        }}
         onPointerCancel={stop}
         className={bubbleCls}
         aria-label="Hold to talk"

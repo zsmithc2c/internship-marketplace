@@ -5,33 +5,30 @@ import { useMutation } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
 
-/* ─────────────────────────── REST helpers ─────────────────────────── */
+/* ──────────────── helpers: STT + TTS via backend ──────────────── */
 
-async function sttRequest(audioBlob: Blob): Promise<string> {
+async function sttRequest(blob: Blob): Promise<string> {
   const form = new FormData();
-  form.append("audio", audioBlob, "speech.webm");
+  form.append("audio", blob, "speech.webm");
 
-  const res = await fetchWithAuth("/api/voice/stt/", {
-    method: "POST",
-    body: form,
-  });
-  if (!res.ok) throw new Error(await res.text());
-  const { text } = await res.json();
+  const r = await fetchWithAuth("/api/voice/stt/", { method: "POST", body: form });
+  if (!r.ok) throw new Error(await r.text());
+  const { text } = await r.json();
   return text;
 }
 
 async function ttsRequest(text: string, voice = "alloy"): Promise<string> {
-  const res = await fetchWithAuth("/api/voice/tts/", {
+  const r = await fetchWithAuth("/api/voice/tts/", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text, voice }),
   });
-  if (!res.ok) throw new Error(await res.text());
-  const { audio_base64 } = await res.json();
+  if (!r.ok) throw new Error(await r.text());
+  const { audio_base64 } = await r.json();
   return `data:audio/mp3;base64,${audio_base64}`;
 }
 
-/* ─────────────────── sentence-speaker shared queue ─────────────────── */
+/* ───────────────────── shared sentence queue ───────────────────── */
 
 function useSentenceQueue() {
   const queue = useRef<HTMLAudioElement[]>([]);
@@ -43,104 +40,117 @@ function useSentenceQueue() {
     const next = queue.current.shift()!;
     next
       .play()
-      .catch(() => {
-        /* autoplay blocked – ignore */
-      })
+      .catch(() => {/* autoplay blocked – ignore */})
       .finally(() => {
         playing.current = false;
         playNext();
       });
   };
 
-  /**
-   * Fetch TTS for a sentence, enqueue it, and start playback.
-   * Resolves when this particular sentence finishes.
-   */
-  async function speakSentence(text: string): Promise<void> {
+  return async (text: string) => {
     if (!text.trim()) return;
-
     const src = await ttsRequest(text);
-    return new Promise<void>((resolve, reject) => {
-      const audio = new Audio(src);
-      audio.addEventListener("ended", () => resolve(), { once: true });
-      audio.addEventListener("error", () => reject(new Error("audio error")), {
+    await new Promise<void>((res, rej) => {
+      const a = new Audio(src);
+      a.addEventListener("ended", () => res(), { once: true });
+      a.addEventListener("error", () => rej(new Error("audio error")), {
         once: true,
       });
-      queue.current.push(audio);
+      queue.current.push(a);
       playNext();
     });
-  }
-
-  return speakSentence;
+  };
 }
 
-/* ───────────────────────────── main hook ───────────────────────────── */
+/* ─────────────────────────── main hook ─────────────────────────── */
 
 export function useVoice() {
-  /* ---------- recording ---------- */
+  /* local state */
   const [isRecording, setIsRecording] = useState(false);
-  const mediaRecorder = useRef<MediaRecorder | null>(null);
-  const chunks = useRef<BlobPart[]>([]);
 
-  /* ---------- STT ---------- */
+  /* refs */
+  const mediaRecorder = useRef<MediaRecorder | null>(null);
+  const chunks         = useRef<BlobPart[]>([]);
+  const stopRequested  = useRef(false);
+  const permissionPrimed = useRef(false);      // ← new
+
+  /* STT mutation */
   const { mutate: sttMutate, data, isPending, error } = useMutation({
     mutationFn: sttRequest,
   });
 
-  /* ---------- start recording ---------- */
-  const start = useCallback(
-    async () => {
-      if (mediaRecorder.current?.state === "recording") return;
+  /* ── begin capture ── */
+  const start = useCallback(async () => {
+    if (mediaRecorder.current?.state === "recording") return;
+    stopRequested.current = false;
 
-      chunks.current = [];
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const rec = new MediaRecorder(stream);
+    /* first-ever press: just ask permission and exit */
+    if (!permissionPrimed.current) {
+      permissionPrimed.current = true;
+      try {
+        const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
+        tmp.getTracks().forEach((t) => t.stop());   // immediately release
+      } catch (err) {
+        throw err;  // user clicked “Block” → bubble error to UI
+      }
+      return;       // user will press again to really record
+    }
 
-      rec.ondataavailable = (e) => chunks.current.push(e.data);
-      rec.onstop = () => {
-        const blob = new Blob(chunks.current, { type: "audio/webm" });
-        sttMutate(blob);
-        stream.getTracks().forEach((t) => t.stop());
-        setIsRecording(false); // ensure UI resets even if stop() wasn’t called
-      };
+    /* normal flow */
+    chunks.current = [];
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      rec.start();
-      mediaRecorder.current = rec;
-      setIsRecording(true);
-    },
-    [sttMutate], // eslint-react/exhaustive-deps satisfied
-  );
+    if (stopRequested.current) {
+      stream.getTracks().forEach((t) => t.stop());
+      stopRequested.current = false;
+      return;
+    }
 
-  /* ---------- stop recording ---------- */
+    const rec = new MediaRecorder(stream);
+    rec.ondataavailable = (e) => chunks.current.push(e.data);
+    rec.onstop = () => {
+      const blob = new Blob(chunks.current, { type: "audio/webm" });
+      sttMutate(blob);
+      stream.getTracks().forEach((t) => t.stop());
+      setIsRecording(false);
+    };
+
+    rec.start();
+    mediaRecorder.current = rec;
+    setIsRecording(true);
+  }, [sttMutate]);
+
+  /* ── stop capture ── */
   const stop = useCallback(() => {
-    if (mediaRecorder.current?.state !== "recording") return;
+    if (mediaRecorder.current?.state !== "recording") {
+      // recording hasn’t started yet → flag to cancel once permission resolves
+      stopRequested.current = true;
+      return;
+    }
     mediaRecorder.current.stop();
-    // isRecording flips in rec.onstop to avoid double-toggle
   }, []);
 
-  /* --- cleanup on unmount --- */
-  useEffect(() => {
-    return () => {
+  /* cleanup on unmount */
+  useEffect(
+    () => () => {
       if (mediaRecorder.current?.state === "recording") {
         mediaRecorder.current.stop();
       }
-    };
-  }, []);
+    },
+    []
+  );
 
-  /* ---------- sentence-level TTS ---------- */
+  /* TTS queue */
   const speakSentence = useSentenceQueue();
 
-  /* ---------- exported API ---------- */
+  /* API */
   return {
-    /* mic */
     isRecording,
     start,
     stop,
-    /* STT */
     transcript: data ?? "",
     sttLoading: isPending,
     sttError: error as Error | null,
-    /* TTS */
     speakSentence,
   };
 }

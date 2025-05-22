@@ -1,35 +1,43 @@
 # backend/urls.py
 """
-URL configuration for backend project.
+URL configuration for Internship-Marketplace backend.
 
 Routes exposed:
-• Admin
-• Auth (accounts)
-• Profiles & Agent
-• Employers (company profile)
-• Internships (listings)
-• Voice (STT / TTS)
-• OpenAPI schema & docs
+• /                   – simple “health-check” landing
+• /admin/             – Django admin
+• /api/…              – accounts, profiles, employers, internships, voice
+• /api/schema/        – OpenAPI JSON
+• /api/docs/          – Swagger UI
 """
 
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
+from django.http import HttpResponse
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
+
+# ───────────────────────────────────────────────────────────────
+# Landing page so “/” doesn’t 404 in dev / tunnels
+# ───────────────────────────────────────────────────────────────
+def home(request):
+    return HttpResponse(
+        "✅ Internship-Marketplace API is running.<br>"
+        'Browse docs at <a href="/api/docs/">/api/docs/</a> .'
+    )
+
+
 urlpatterns = [
+    # ---------- Root ----------
+    path("", home, name="home"),
     # ---------- Django admin ----------
     path("admin/", admin.site.urls),
-    # ---------- Auth / accounts ----------
+    # ---------- App APIs ----------
     path("api/", include("accounts.urls")),
-    # ---------- Profiles & Agent ----------
     path("api/", include("profiles.urls")),
-    # ---------- Employers ----------
     path("api/", include("employers.urls")),
-    # ---------- Internships ----------
     path("api/", include("internships.urls")),
-    # ---------- Voice (STT / TTS) ----------
     path("api/", include("voice.urls")),
     # ---------- API schema & docs ----------
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),

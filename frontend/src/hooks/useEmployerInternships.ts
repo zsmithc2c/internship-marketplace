@@ -22,19 +22,19 @@ export type EmployerInternship = {
 /* ------------------------------------------------------------------ */
 /*  API helpers                                                        */
 /* ------------------------------------------------------------------ */
+
+/* ── GET current employer’s listings ── */
 async function getMine(): Promise<EmployerInternship[]> {
   const res = await fetchWithAuth("/api/internships?mine=true");
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
+/* ── POST create listing ── */
 async function postListing(
   data: Omit<
     EmployerInternship,
-    | "id"
-    | "posted_at"
-    | "updated_at"
-    | "applications_count"
+    "id" | "posted_at" | "updated_at" | "applications_count"
   >
 ): Promise<EmployerInternship> {
   const res = await fetchWithAuth("/api/internships", {
@@ -46,32 +46,34 @@ async function postListing(
   return res.json();
 }
 
-async function patchListing({
-  id,
-  data,
-}: {
-  id: number;
-  data: Partial<EmployerInternship>;
-}): Promise<EmployerInternship> {
-  const res = await fetchWithAuth(`/api/internships/${id}/`, {
-    method: "PATCH",
+/* ── PUT update listing ── */
+async function putListing(
+  data: Omit<
+    EmployerInternship,
+    "posted_at" | "updated_at" | "applications_count"
+  >
+): Promise<EmployerInternship> {
+  const { id, ...fields } = data;
+  const res = await fetchWithAuth(`/api/internships/${id}`, {
+    method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
+    body: JSON.stringify(fields),
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
+/* ── DELETE listing ── */
 async function deleteListing(id: number): Promise<void> {
-  const res = await fetchWithAuth(`/api/internships/${id}/`, {
-    method: "DELETE",
-  });
+  const res = await fetchWithAuth(`/api/internships/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error(await res.text());
 }
 
 /* ------------------------------------------------------------------ */
-/*  Hooks                                                              */
+/*  React-Query hooks                                                  */
 /* ------------------------------------------------------------------ */
+
+/** List current employer’s internships */
 export function useEmployerInternships() {
   return useQuery({
     queryKey: ["internships", "mine"],
@@ -79,29 +81,29 @@ export function useEmployerInternships() {
   });
 }
 
+/** Create a new internship */
 export function useCreateInternship() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: postListing,
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ["internships", "mine"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["internships", "mine"] }),
   });
 }
 
+/** Update an existing internship */
 export function useUpdateInternship() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: patchListing,
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ["internships", "mine"] }),
+    mutationFn: putListing,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["internships", "mine"] }),
   });
 }
 
+/** Delete an internship */
 export function useDeleteInternship() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: deleteListing,
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ["internships", "mine"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["internships", "mine"] }),
   });
 }
