@@ -45,9 +45,20 @@ class InternshipSerializer(serializers.ModelSerializer):
         return obj.applications.count()
 
     def validate(self, attrs):
-        # Require location if not remote
-        if not attrs.get("is_remote") and not attrs.get("location"):
+        """Require a location for non-remote listings, including partial updates."""
+        is_remote = attrs.get("is_remote")
+        location = attrs.get("location")
+
+        if self.instance is not None:
+            # For PATCH requests fall back to existing values when fields are omitted
+            if is_remote is None:
+                is_remote = self.instance.is_remote
+            if location is None:
+                location = self.instance.location
+
+        if not is_remote and not location:
             raise serializers.ValidationError(
                 {"location": "Location is required for non-remote internships."}
             )
+
         return attrs
