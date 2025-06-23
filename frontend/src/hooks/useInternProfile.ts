@@ -76,6 +76,15 @@
     * ------------------------------------------------------------------ */
   export function useInternProfile() {
     // Keep query key in sync with other profile hooks
+    const qc = useQueryClient();
+
+    useEffect(() => {
+      const handler = () =>
+        qc.invalidateQueries({ queryKey: ["profile", "me"] });
+      window.addEventListener("profile-saved", handler);
+      return () => window.removeEventListener("profile-saved", handler);
+    }, [qc]);
+
     return useQuery({
       queryKey: ["profile", "me"],
       queryFn: fetchProfile,
