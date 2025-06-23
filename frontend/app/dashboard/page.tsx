@@ -18,6 +18,8 @@ import { useEmployerProfile } from "@/hooks/useEmployerProfile";
 import { useVoiceAgentCtx } from "@/context/VoiceAgentContext";
 import { useOpenInternships } from "@/hooks/useOpenInternships";
 
+import Footer from "@/components/ui/Footer";          /* ← fixed import */
+
 import MetricCard from "./MetricCard";
 import TipCarousel from "./TipCarousel";
 import ActivityFeed from "./ActivityFeed";
@@ -54,31 +56,6 @@ interface InternshipSummary {
 const ROLE_LABEL: Record<string, string> = { INTERN: "Intern", EMPLOYER: "Employer" };
 const metricWrapper =
   "rounded-xl bg-white/80 backdrop-blur ring-1 ring-gray-200 shadow-sm";
-
-/* ───────────────── Footer (display-only links) ────────────────── */
-function Footer() {
-  return (
-    <footer className="mt-auto bg-gray-900 text-white">
-      <div className="mx-auto max-w-6xl grid gap-8 px-6 py-10 sm:grid-cols-3">
-        <div>
-          <h3 className="text-lg font-semibold">Pipeline</h3>
-          <p className="mt-2 max-w-xs text-sm text-gray-300">
-            Connecting ambitious talent with innovative companies.
-          </p>
-        </div>
-        <nav className="space-y-2 text-sm text-gray-400">
-          <span className="block">About</span>
-          <span className="block">Privacy</span>
-          <span className="block">Terms</span>
-          <span className="block">Contact</span>
-        </nav>
-      </div>
-      <div className="border-t border-gray-800 py-4 text-center text-xs text-gray-400">
-        © {new Date().getFullYear()} Pipeline. All rights reserved.
-      </div>
-    </footer>
-  );
-}
 
 /* ───────────────────────── Dashboard page ─────────────────────── */
 export default function DashboardPage() {
@@ -213,7 +190,7 @@ export default function DashboardPage() {
   /* ─────────────────────────────── UI ─────────────────────────── */
   return (
     <main className="flex min-h-screen flex-col bg-gradient-to-br from-[#f1f5ff] via-[#eef7ff] to-[#e6f4ff] text-black">
-      {/* Hero */}
+      {/* ── Hero ────────────────────────────────────────────────── */}
       <section className="relative isolate overflow-hidden">
         <div className="pointer-events-none absolute inset-0 -z-20">
           <div className="absolute -top-1/3 left-0 h-[150%] w-full bg-gradient-to-tr from-[--accent-primary]/30 via-purple-300/20 to-transparent blur-3xl" />
@@ -243,7 +220,7 @@ export default function DashboardPage() {
               : "Pipeline matches ambitious students with curated internships — your AI mentor is ready to help."}
           </p>
 
-          {/* voice agent CTA - press-and-hold behaviour fixed */}
+          {/* voice agent CTA */}
           <div className="relative inline-block">
             <Card
               role="button"
@@ -311,7 +288,7 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* Main content */}
+      {/* ── Main content ───────────────────────────────────────── */}
       <section className="relative bg-gradient-to-b from-transparent via-[#f8fbff] to-[#eef4ff] pt-16 pb-24">
         <div className="mx-auto max-w-6xl px-6">
           {isEmployer && myInternships.length === 0 ? (
@@ -360,7 +337,11 @@ export default function DashboardPage() {
                       <MetricCard icon={Send} label="Applications Submitted" value={0} />
                     </div>
                     <div className={metricWrapper}>
-                      <MetricCard icon={Briefcase} label="Open Internships" value={openInternships.length} />
+                      <MetricCard
+                        icon={Briefcase}
+                        label="Open Internships"
+                        value={openInternships.length}
+                      />
                     </div>
                   </>
                 )}
@@ -368,7 +349,11 @@ export default function DashboardPage() {
                 {isEmployer && (
                   <>
                     <div className={metricWrapper}>
-                      <MetricCard icon={Briefcase} label="Internship Postings" value={myInternships.length} />
+                      <MetricCard
+                        icon={Briefcase}
+                        label="Internship Postings"
+                        value={myInternships.length}
+                      />
                     </div>
                     <div className={metricWrapper}>
                       <MetricCard
@@ -385,9 +370,13 @@ export default function DashboardPage() {
                         {myInternships.length
                           ? (() => {
                               const last = new Date(
-                                Math.max(...myInternships.map((j) => new Date(j.posted_at).getTime())),
+                                Math.max(
+                                  ...myInternships.map((j) => new Date(j.posted_at).getTime()),
+                                ),
                               );
-                              const diff = Math.floor((Date.now() - last.getTime()) / 86_400_000);
+                              const diff = Math.floor(
+                                (Date.now() - last.getTime()) / 86_400_000,
+                              );
                               if (diff === 0) return "Last posting: Today";
                               if (diff === 1) return "Last posting: Yesterday";
                               if (diff < 7) return `Last posting: ${diff} days ago`;
@@ -442,7 +431,9 @@ export default function DashboardPage() {
                         </div>
                         <CardTitle className="text-lg">{title}</CardTitle>
                       </CardHeader>
-                      <CardContent className="pt-3 text-sm text-neutral-600">{desc}</CardContent>
+                      <CardContent className="pt-3 text-sm text-neutral-600">
+                        {desc}
+                      </CardContent>
                     </Card>
                   </Link>
                 ))}
@@ -452,6 +443,7 @@ export default function DashboardPage() {
         </div>
       </section>
 
+      {/* ── Shared footer ───────────────────────────────────────── */}
       <Footer />
     </main>
   );
