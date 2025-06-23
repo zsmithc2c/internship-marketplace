@@ -3,12 +3,16 @@ version: "3.9"
 services:
   # ── Django API ───────────────────────────────────────────────
   backend:
-    build: .
-    command: python manage.py runserver 0.0.0.0:8000
+    image: python:3.12-slim               
+    working_dir: /app
+    command: >
+      bash -c "
+        pip install --no-cache-dir -r requirements.txt &&
+        python manage.py runserver 0.0.0.0:8000"
     volumes:
-      - .:/app                       # live-reload in dev
+      - .:/app                             # live-reload in dev
     env_file:
-      - .env                         # contains DATABASE_URL, CACHE_URL, etc.
+      - .env                               # contains DATABASE_URL, CACHE_URL, etc.
     ports:
       - "8000:8000"
     depends_on:
