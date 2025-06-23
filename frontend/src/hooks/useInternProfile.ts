@@ -74,21 +74,31 @@
    /* ------------------------------------------------------------------ *
     *  React-Query hooks                                                 *
     * ------------------------------------------------------------------ */
-   export function useInternProfile() {
-     return useQuery({
-       queryKey: ["intern", "profile"],
-       queryFn: fetchProfile,
-     });
-   }
+  export function useInternProfile() {
+    // Keep query key in sync with other profile hooks
+    const qc = useQueryClient();
+
+    useEffect(() => {
+      const handler = () =>
+        qc.invalidateQueries({ queryKey: ["profile", "me"] });
+      window.addEventListener("profile-saved", handler);
+      return () => window.removeEventListener("profile-saved", handler);
+    }, [qc]);
+
+    return useQuery({
+      queryKey: ["profile", "me"],
+      queryFn: fetchProfile,
+    });
+  }
    
-   export function useUpdateInternProfile() {
-     const qc = useQueryClient();
-     return useMutation({
-       mutationFn: patchProfile,
-       onSuccess: (data) => {
-         // keep cache in sync
-         qc.setQueryData(["intern", "profile"], data);
-       },
-     });
-   }
+  export function useUpdateInternProfile() {
+    const qc = useQueryClient();
+    return useMutation({
+      mutationFn: patchProfile,
+      onSuccess: (data) => {
+        // keep cache in sync for profile queries
+        qc.setQueryData(["profile", "me"], data);
+      },
+    });
+  }
    
