@@ -148,6 +148,17 @@ body{
   .animate-blob{ animation: none !important; }
 }
 
+@keyframes halo {
+  0%,100% { transform: scale(1);   opacity: 0.8; }
+  50%     { transform: scale(1.4); opacity: 0;   }
+}
+.animate-halo {
+  animation: halo 2s infinite ease-in-out;
+}
+@media (prefers-reduced-motion: reduce){
+  .animate-halo{ animation: none !important; }
+}
+
 /*  FOCUS OUTLINES --------------------------------------------------------- */
 :is(a, button, input, textarea, select, summary, [tabindex]):focus-visible {
   outline: 2px solid var(--accent-primary);

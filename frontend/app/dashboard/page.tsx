@@ -282,12 +282,7 @@ export default function DashboardPage() {
             >
               <span className="relative grid size-14 place-items-center rounded-full bg-primary/10 text-primary shadow-md">
                 {showHalo && (
-                  <motion.span
-                    initial={{ scale: 1, opacity: 0.8 }}
-                    animate={{ scale: [1, 1.4, 1], opacity: [0.8, 0, 0.8] }}
-                    transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                    className="pointer-events-none absolute inset-0 z-0 rounded-full bg-[--accent-primary]/50"
-                  />
+                  <span className="pointer-events-none absolute inset-0 z-0 rounded-full bg-[--accent-primary]/50 animate-halo" />
                 )}
                 {va?.isRecording ? (
                   <>
