@@ -338,7 +338,7 @@ export default function LandingPage() {
               <li
                 key={name}
                 className="w-full flex-none px-6 md:px-24"
-                style={{ width: "100%" }}
+                style={{ width: `${100 / TESTIMONIALS.length}%` }}
               >
                 <figure className="mx-auto max-w-3xl text-center">
                   <blockquote className="rounded-xl bg-gray-50 p-8 text-lg italic shadow">
