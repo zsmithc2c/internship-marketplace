@@ -357,10 +357,7 @@ export default function LandingPage() {
         <div className="mt-8 flex flex-wrap justify-center gap-4">
           <Link
             href="/signup"
-            className={cn(
-              buttonVariants({ variant: "default", size: "lg" }),
-              "bg-white text-[--accent-primary] hover:bg-white/90 active:bg-white/80"
-            )}
+            className={cn(buttonVariants({ variant: "default", size: "lg" }))}
           >
             Sign up free
           </Link>
