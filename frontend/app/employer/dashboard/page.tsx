@@ -1,7 +1,9 @@
 // /frontend/app/employer/dashboard/page.tsx
 "use client";
 
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import Link from "next/link";
 import {
   Card,
@@ -11,6 +13,9 @@ import {
 } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
 import { useVoiceAgentCtx } from "@/context/VoiceAgentContext";
+import { useEmployerProfile } from "@/hooks/useEmployerProfile";
+import { useEmployerInternships } from "@/hooks/useEmployerInternships";
+import MetricCard from "../../dashboard/MetricCard";
 import {
   Briefcase,
   FilePlus,
@@ -18,12 +23,31 @@ import {
   LifeBuoy,
   Mic,
   LogOut,
+  Send,
+  Lightbulb,
 } from "lucide-react";
+
+/* ────────────────────────────────────────────────────────────────── */
+function Typewriter({ text, speed = 50 }: { text: string; speed?: number }) {
+  const [idx, setIdx] = useState(0);
+  useEffect(() => {
+    if (idx === text.length) return;
+    const t = setTimeout(() => setIdx((i) => i + 1), speed);
+    return () => clearTimeout(t);
+  }, [idx, text, speed]);
+  return <span>{text.slice(0, idx)}</span>;
+}
+
+const metricWrapper =
+  "rounded-xl bg-white/80 backdrop-blur ring-1 ring-gray-200 shadow-sm";
 
 export default function EmployerDashboardPage() {
   const router = useRouter();
-  const { user, logout } = useAuth();          //  user type has no first_name
+  const { logout } = useAuth();
   const va = useVoiceAgentCtx();
+  const { data: profile } = useEmployerProfile();
+  const { data: myInternships = [], isLoading: internshipsLoading } =
+    useEmployerInternships();
 
   const tiles = [
     {
@@ -59,16 +83,33 @@ export default function EmployerDashboardPage() {
   };
   const handlePressEnd = () => va?.stop?.();
 
+  const greeting = profile?.company_name ? `, ${profile.company_name}` : "!";
+
   return (
     <main className="pt-14">
       {/* ───── Hero banner with voice agent CTA ───── */}
-      <section className="relative flex flex-col items-center justify-center gap-6 overflow-hidden bg-gradient-to-br from-[--accent-employer] to-[--accent] px-6 py-20 text-center text-black">
-        <h1 className="text-4xl font-semibold tracking-tight">
-          Welcome back{user ? "!" : "!"}
-        </h1>
-        <p className="max-w-lg opacity-80">
-          Manage your internships and let the AI assistant help you find talent.
-        </p>
+      <section className="relative isolate overflow-hidden">
+        <div className="pointer-events-none absolute inset-0 -z-20">
+          <div className="absolute -top-1/3 left-0 h-[150%] w-full bg-gradient-to-tr from-[--accent-employer]/30 via-orange-300/20 to-transparent blur-3xl" />
+        </div>
+        <div className="absolute inset-0 -z-10">
+          <Image
+            src="/globe.svg"
+            alt="Dashboard banner"
+            fill
+            priority
+            sizes="100vw"
+            className="object-cover opacity-20"
+          />
+          <div className="absolute inset-0 bg-white/40 backdrop-blur-sm" />
+        </div>
+        <div className="relative z-10 mx-auto flex max-w-5xl flex-col items-center gap-6 px-6 py-24 text-center text-black">
+          <h1 className="text-4xl font-extrabold tracking-tight">
+            <Typewriter text={`Welcome back${greeting}`} />
+          </h1>
+          <p className="max-w-lg opacity-80">
+            Manage your internships and let the AI assistant help you find talent.
+          </p>
 
         {/* front-and-center voice agent card */}
         <Card
@@ -106,6 +147,45 @@ export default function EmployerDashboardPage() {
         >
           <LogOut className="h-4 w-4" /> Log out
         </button>
+        </div>
+      </section>
+
+      {/* ───── Metrics grid ───── */}
+      <section className="bg-gray-50/60 pb-16 pt-12">
+        <div className="mx-auto grid max-w-6xl grid-cols-1 gap-4 px-6 sm:grid-cols-3">
+          <div className={metricWrapper}>
+            <MetricCard
+              icon={Briefcase}
+              label="Internship Postings"
+              value={myInternships.length}
+              loading={internshipsLoading}
+            />
+          </div>
+          <div className={metricWrapper}>
+            <MetricCard
+              icon={Send}
+              label="Pending Applications"
+              value={myInternships.reduce((s, j) => s + (j.applications_count ?? 0), 0)}
+              loading={internshipsLoading}
+            />
+          </div>
+          <div className={metricWrapper}>
+            <MetricCard icon={Lightbulb} label="Recent Activity">
+              {myInternships.length
+                ? (() => {
+                    const last = new Date(
+                      Math.max(...myInternships.map((j) => new Date(j.posted_at).getTime())),
+                    );
+                    const diff = Math.floor((Date.now() - last.getTime()) / 86_400_000);
+                    if (diff === 0) return "Last posting: Today";
+                    if (diff === 1) return "Last posting: Yesterday";
+                    if (diff < 7) return `Last posting: ${diff} days ago`;
+                    return `Last posting: ${last.toLocaleDateString()}`;
+                  })()
+                : "No recent activity"}
+            </MetricCard>
+          </div>
+        </div>
       </section>
 
       {/* ───── Quick-link cards ───── */}
