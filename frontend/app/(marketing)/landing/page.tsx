@@ -178,8 +178,8 @@ export default function LandingPage() {
           <Link
             href="/signup"
             className={cn(
-              buttonVariants({ variant: "default", size: "lg" }),
-              "bg-white text-[--accent-primary] hover:bg-white/90 active:bg-white/80"
+              buttonVariants({ variant: "ghost", size: "lg" }),
+              "border border-[--accent-primary] bg-[--accent-primary] text-white hover:bg-[--accent-primary]/90 active:bg-[--accent-primary]/80"
             )}
           >
             Sign up
