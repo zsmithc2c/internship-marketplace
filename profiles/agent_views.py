@@ -1,4 +1,3 @@
-# profiles/agent_views.py
 from __future__ import annotations
 
 import asyncio
@@ -65,7 +64,6 @@ def extract_tool_schema(tool) -> Dict:
             obj = _maybe_call(getattr(tool, name))
             if isinstance(obj, dict):
                 return obj
-
     if hasattr(tool, "params_json_schema"):
         return {
             "type": "function",
@@ -77,7 +75,6 @@ def extract_tool_schema(tool) -> Dict:
         }
     if hasattr(tool, "model_dump"):
         return tool.model_dump()
-
     raise AttributeError("Unable to locate schema on FunctionTool")
 
 
@@ -133,9 +130,16 @@ class ProfileBuilderAgentView(APIView):
                 status=429,
             )
 
-        AgentMessage.objects.create(user=user, role="user", content=latest)
+        # Save user message with agent_type explicit
+        AgentMessage.objects.create(
+            user=user, role="user", content=latest, agent_type="intern"
+        )
 
-        history = list(AgentMessage.objects.filter(user=user).order_by("created_at"))
+        history = list(
+            AgentMessage.objects.filter(user=user, agent_type="intern").order_by(
+                "created_at"
+            )
+        )
         prompt = make_prompt(history, latest)
         meta = build_profile_builder_agent(user_email=user.email)
 
@@ -215,7 +219,6 @@ class ProfileBuilderAgentView(APIView):
 
                             result = await _invoke_tool(tool_lookup[fn_name], kwargs)
 
-                            # ── navigation helper → send as **string token**
                             if fn_name == "navigate_to_v1" and isinstance(kwargs, dict):
                                 path = kwargs.get("path", "/")
                                 q.put(json.dumps({"navigate": path}))
@@ -286,7 +289,10 @@ class ProfileBuilderAgentView(APIView):
                 except Exception:  # pragma: no cover
                     pass
 
-                AgentMessage.objects.create(user=user, role="assistant", content=reply)
+                # Save assistant reply tagged as intern
+                AgentMessage.objects.create(
+                    user=user, role="assistant", content=reply, agent_type="intern"
+                )
 
                 payload: Dict[str, object] = {"delta": "", "done": True}
 
@@ -314,7 +320,9 @@ class AgentHistoryView(APIView):
 
     def get(self, request, *args, **kwargs):
         try:
-            qs = AgentMessage.objects.filter(user=request.user).order_by("created_at")
+            qs = AgentMessage.objects.filter(
+                user=request.user, agent_type="intern"
+            ).order_by("created_at")
             return Response(AgentMessageSerializer(qs, many=True).data)
         except Exception as exc:
             log.exception("History endpoint failed for %s: %s", request.user, exc)

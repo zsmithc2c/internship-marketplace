@@ -1,5 +1,7 @@
+# employers/views.py
 from rest_framework import generics, permissions
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.parsers import FormParser, MultiPartParser  # ← NEW
 
 from accounts.models import User
 
@@ -16,6 +18,7 @@ class EmployerMeView(generics.RetrieveUpdateAPIView):
 
     serializer_class = EmployerSerializer
     permission_classes = [permissions.IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser)  # ← NEW
 
     def get_object(self):
         # Only allow if current user is an employer

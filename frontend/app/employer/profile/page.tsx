@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,21 +18,25 @@ import {
   EmployerProfile,
 } from "@/hooks/useEmployerProfile";
 
-/*──────────────────────── helpers ────────────────────────*/
-const BLANK: EmployerProfile = {
-  id: 0,
+/* ─────────────────────── types & helpers ─────────────────────── */
+type FormState = Omit<
+  EmployerProfile,
+  "id" | "logo"
+> & { logo_preview: string | null };
+
+const BLANK: FormState = {
   company_name: "",
   mission: "",
   location: "",
   website: "",
-  logo: null,
+  logo_preview: null,
 };
 
 const accentBtn = "bg-emerald-600 hover:bg-emerald-700 text-white";
 
-/*──────────────────── component ──────────────────────────*/
+/* ─────────────────────── component ───────────────────────────── */
 export default function EmployerProfilePage() {
-  /* data */
+  /* data from API */
   const {
     data: profile,
     isLoading,
@@ -45,44 +50,64 @@ export default function EmployerProfilePage() {
     error: saveErr,
   } = useUpdateEmployerProfile();
 
-  /* local state */
-  const [form, setForm] = useState<EmployerProfile>(BLANK);
+  /* local form state */
+  const [form, setForm] = useState<FormState>(BLANK);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
   const [dirty, setDirty] = useState(false);
 
+  /* hydrate form when profile loads */
   useEffect(() => {
     if (profile) {
-      setForm(profile);
+      setForm({
+        company_name: profile.company_name,
+        mission: profile.mission ?? "",
+        location: profile.location ?? "",
+        website: profile.website ?? "",
+        logo_preview: profile.logo ?? null, // absolute /media/... URL
+      });
+      setLogoFile(null);
       setDirty(false);
     }
   }, [profile]);
 
   /* field helpers */
-  const set = (k: keyof EmployerProfile, v: string | null) => {
-    setForm({ ...form, [k]: v });
+  const set = (k: keyof FormState, v: string | null) => {
+    setForm({ ...form, [k]: v ?? "" });
     setDirty(true);
   };
 
-  const pickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const pickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const dataUrl = await new Promise<string>((res) => {
-      const r = new FileReader();
-      r.onload = () => res(r.result as string);
-      r.readAsDataURL(file);
-    });
-    set("logo", dataUrl);
+    setLogoFile(file);
+    setForm({ ...form, logo_preview: URL.createObjectURL(file) });
+    setDirty(true);
   };
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { id, ...payload } = form;
-    saveProfile(payload);
+
+    /* ---------- build multipart body ---------- */
+    const fd = new FormData();
+    fd.append("company_name", form.company_name.trim());
+
+    if (logoFile) fd.append("logo", logoFile);
+    if (form.mission.trim())  fd.append("mission", form.mission.trim());
+    if (form.location.trim()) fd.append("location", form.location.trim());
+    if (form.website.trim())  fd.append("website", form.website.trim());
+
+    saveProfile(fd);               // ← hook now expects FormData
   };
 
-  const reset = () => profile && setForm(profile);
+  const reset = () => profile && setForm({
+    company_name: profile.company_name,
+    mission: profile.mission ?? "",
+    location: profile.location ?? "",
+    website: profile.website ?? "",
+    logo_preview: profile.logo ?? null,
+  });
 
-  /* loading / error */
+  /* ---------- loading / error states ---------- */
   if (isLoading) {
     return (
       <main className="grid min-h-screen place-items-center">
@@ -100,7 +125,7 @@ export default function EmployerProfilePage() {
     );
   }
 
-  /*──────────────────── render ──────────────────────────*/
+  /* ─────────────────────── render ───────────────────────────── */
   return (
     <main className="min-h-screen bg-gray-50/60 pt-14">
       <section className="mx-auto max-w-4xl space-y-10 px-6 py-16">
@@ -111,8 +136,8 @@ export default function EmployerProfilePage() {
           </Link>
         </header>
 
-        <form onSubmit={submit} className="space-y-8">
-          {/*──────── Brand card ────────*/}
+        <form onSubmit={submit} encType="multipart/form-data" className="space-y-8">
+          {/* ───── Brand card ───── */}
           <Card>
             <CardHeader>
               <CardTitle>Brand</CardTitle>
@@ -121,9 +146,9 @@ export default function EmployerProfilePage() {
               <div className="grid gap-6 sm:grid-cols-[120px_1fr]">
                 {/* logo */}
                 <div className="flex flex-col items-center gap-3 sm:items-start">
-                  {form.logo ? (
+                  {form.logo_preview ? (
                     <Image
-                      src={form.logo}
+                      src={form.logo_preview}
                       alt={form.company_name || "Logo"}
                       width={96}
                       height={96}
@@ -145,7 +170,7 @@ export default function EmployerProfilePage() {
                     htmlFor="logoPicker"
                     className="cursor-pointer rounded bg-gray-100 px-2 py-1 text-xs font-medium hover:bg-gray-200"
                   >
-                    {form.logo ? "Replace logo" : "Upload logo"}
+                    {form.logo_preview ? "Replace logo" : "Upload logo"}
                   </label>
                 </div>
 
@@ -160,7 +185,7 @@ export default function EmployerProfilePage() {
             </CardContent>
           </Card>
 
-          {/*──────── Mission card ────────*/}
+          {/* ───── Mission card ───── */}
           <Card>
             <CardHeader>
               <CardTitle>Mission</CardTitle>
@@ -175,7 +200,7 @@ export default function EmployerProfilePage() {
             </CardContent>
           </Card>
 
-          {/*──────── Details card ────────*/}
+          {/* ───── Details card ───── */}
           <Card>
             <CardHeader>
               <CardTitle>Details</CardTitle>
@@ -200,7 +225,7 @@ export default function EmployerProfilePage() {
             </CardContent>
           </Card>
 
-          {/*──────── actions ────────*/}
+          {/* ───── actions ───── */}
           {saveErr && <ErrorNote err={saveErr} />}
 
           <div className="flex flex-wrap items-center gap-4">
@@ -229,7 +254,7 @@ export default function EmployerProfilePage() {
   );
 }
 
-/*──────────────── reusable field blocks ────────────────*/
+/* ───────────────── reusable field blocks ───────────────────── */
 function InputBlock(props: {
   label: string;
   value: string;

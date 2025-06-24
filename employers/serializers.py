@@ -10,6 +10,13 @@ class EmployerSerializer(serializers.ModelSerializer):
         model = Employer
         fields = ("id", "company_name", "logo", "mission", "location", "website")
         read_only_fields = ("id",)
+        extra_kwargs = {
+            # ── make everything but company_name optional ──
+            "logo": {"required": False, "allow_null": True},
+            "mission": {"required": False, "allow_null": True},
+            "location": {"required": False, "allow_null": True},
+            "website": {"required": False, "allow_null": True},
+        }
 
 
 class ApplicationSerializer(serializers.ModelSerializer):

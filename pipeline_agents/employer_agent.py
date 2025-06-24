@@ -1,12 +1,13 @@
 """
 pipeline_agents/employer_agent.py
-────────────────────────────────────────────────────────────────────────────
-Employer-side assistant that can:
+─────────────────────────────────────────────────────────────────────────────
+Employer-side AI assistant.
 
+Capabilities
 • Build / edit the company profile
-• Create, update or delete internship listings
+• Create, update, delete internship listings
 • List applicants for a listing
-• Tell the front-end to change pages
+• Instruct the front-end to navigate pages
 """
 
 from __future__ import annotations
@@ -27,12 +28,12 @@ from pipeline_agents.openai_client import client as async_client
 User = get_user_model()
 
 
-# ──────────────────────────── OpenAI-schema helper ────────────────────────────
+# ─────────────────────────────── schema helper ──────────────────────────────
 def _equip_openai_schema(tool):
     """
-    Ensure every FunctionTool exposes `.openai_schema`
-    and that the parameters block has *no* "required" list so the
-    model may send partial payloads.
+    Make sure every FunctionTool exposes `.openai_schema` and strip any
+    “required” array from the parameters block so the model can send
+    partial payloads.
     """
     if not hasattr(tool, "openai_schema") and hasattr(tool, "schema"):
         tool.openai_schema = tool.schema  # type: ignore[attr-defined]
@@ -43,7 +44,7 @@ def _equip_openai_schema(tool):
     return tool
 
 
-# ───────────────────────────────  DB helpers  ────────────────────────────────
+# ──────────────────────────────── DB helpers ────────────────────────────────
 def _save_company_sync(user_email: str, data: dict) -> str:
     user = User.objects.get(email=user_email)
     employer, _ = Employer.objects.get_or_create(user=user)
@@ -56,6 +57,7 @@ def _save_company_sync(user_email: str, data: dict) -> str:
             ser.is_valid(raise_exception=True)
             ser.save()
 
+    # Return JSON snapshot for DEBUG diagnostics
     return json.dumps(data, default=str)
 
 
@@ -108,7 +110,7 @@ def _delete_listing_sync(user_email: str, listing_id: int) -> str:
     return json.dumps(snap, default=str)
 
 
-# ─────────────────── FunctionTool: company-profile update ────────────────────
+# ────────────── FunctionTool: company-profile update ──────────────
 def _company_fields_tool_for(user_email: str):
     _KEY_MAP = {
         "name": "company_name",
@@ -125,7 +127,6 @@ def _company_fields_tool_for(user_email: str):
     async def set_company_fields_v1(*, payload_json: str | None = None) -> str:
         if not payload_json or payload_json.strip() in ("{}", "null", ""):
             return "no_changes"
-
         raw = json.loads(payload_json)
         data = {_KEY_MAP[k]: v for k, v in raw.items() if k in _KEY_MAP}
         if not data:
@@ -144,7 +145,7 @@ def _company_fields_tool_for(user_email: str):
     return _equip_openai_schema(set_company_fields_v1)
 
 
-# ─────────────────── FunctionTool: listing create / update ───────────────────
+# ────────────── FunctionTool: listing create / update ──────────────
 def _listing_fields_tool_for(user_email: str):
     @function_tool
     async def set_internship_fields_v1(*, payload_json: str | None = None) -> str:
@@ -171,7 +172,7 @@ def _listing_fields_tool_for(user_email: str):
     return _equip_openai_schema(set_internship_fields_v1)
 
 
-# ─────────────────── FunctionTool: list applicants ───────────────────
+# ────────────── FunctionTool: list applicants ──────────────
 def _listing_applicants_tool_for(user_email: str):
     @function_tool
     async def list_applicants_v1(*, listing_id: int) -> str:
@@ -188,7 +189,7 @@ def _listing_applicants_tool_for(user_email: str):
     return _equip_openai_schema(list_applicants_v1)
 
 
-# ─────────────────── FunctionTool: delete listing ───────────────────
+# ────────────── FunctionTool: delete listing ──────────────
 def _listing_delete_tool_for(user_email: str):
     @function_tool
     async def delete_internship_v1(*, listing_id: int) -> str:
@@ -205,7 +206,7 @@ def _listing_delete_tool_for(user_email: str):
     return _equip_openai_schema(delete_internship_v1)
 
 
-# ─────────────────── FunctionTool: front-end navigation ───────────────────
+# ────────────── FunctionTool: front-end navigation ──────────────
 def _navigate_tool():
     @function_tool
     async def navigate_to_v1(*, path: str) -> str:
@@ -239,20 +240,20 @@ perform the corresponding action.**
 IMPORTANT RULES
 1. Use a tool whenever the user wants to **do** something (save data, delete,
    view applicants, navigate). Otherwise give a normal answer.
-2. For tools #1 and #2 send the data as a *double-encoded JSON string* via
+2. For tools #1 and #2 send data as a *double-encoded JSON string* in
    `payload_json`.
 
-   Example – set company name & mission
-       {
-         "name": "set_company_fields_v1",
-         "arguments": {
-           "payload_json": "{\"company_name\":\"Rocket Co\",\"mission\":\"Make space cheap\"}"
-         }
-       }
+   Example – set company name & mission  
+     {  
+       "name": "set_company_fields_v1",  
+       "arguments": {  
+         "payload_json": "{\"company_name\":\"Rocket Co\",\"mission\":\"Make space cheap\"}"  
+       }  
+     }
 
 3. Wait for explicit confirmation before deleting data or posting a listing
    unless the request is crystal-clear.
-4. After you call a tool, summarise the result in plain language.
+4. After calling a tool, summarise the result in plain language.
 5. Keep replies concise, friendly, action-oriented.
 
 ONBOARDING FLOW
@@ -278,8 +279,6 @@ INTERNSHIP LISTING WORKFLOW
 PAGE NAVIGATION
 Use navigate_to_v1 whenever the user asks to open a different page, e.g.
   /employer/internships   /employer/help   etc.
-
-  
 
 Ready to assist!
 """

@@ -9,42 +9,51 @@ import {
 } from "@tanstack/react-query";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
 
-/* -------------------- types -------------------- */
+/* ------------------------------------------------------------------ */
+/*                                 Types                              */
+/* ------------------------------------------------------------------ */
 export type EmployerProfile = {
   id: number;
   company_name: string;
-  logo: string | null;
+  logo: string | null;          // URL or null
   mission: string;
   location: string;
   website: string;
 };
 
-/* ------------------ API calls ------------------ */
+type SavePayload = FormData | Partial<EmployerProfile>;
+
+/* ------------------------------------------------------------------ */
+/*                           API helpers                              */
+/* ------------------------------------------------------------------ */
 async function getEmployerProfile(): Promise<EmployerProfile> {
   const res = await fetchWithAuth("/api/employer/me");
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
-async function putEmployerProfile(
-  data: Partial<EmployerProfile>,
-): Promise<EmployerProfile> {
+async function putEmployerProfile(payload: SavePayload): Promise<EmployerProfile> {
+  const isFormData = payload instanceof FormData;
+
   const res = await fetchWithAuth("/api/employer/me", {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
+    body: isFormData ? payload : JSON.stringify(payload),
+    // Let the browser set the boundary for multipart; otherwise use JSON header
+    headers: isFormData ? undefined : { "Content-Type": "application/json" },
   });
+
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
-/* -------------------- hooks -------------------- */
+/* ------------------------------------------------------------------ */
+/*                               Hooks                                */
+/* ------------------------------------------------------------------ */
 
 /**
- * Fetch the logged-in employer’s profile.
+ * Fetch the logged-in employer profile.
  *
- * @param options Optional React-Query options — pass `{ enabled: false }`
- *                if you want to disable the query for non-employer users.
+ * @param options React-Query overrides (e.g. `{ enabled:false }` for interns)
  */
 export function useEmployerProfile(
   options: Partial<UseQueryOptions<EmployerProfile>> = {},
@@ -52,14 +61,18 @@ export function useEmployerProfile(
   return useQuery<EmployerProfile>({
     queryKey: ["employer", "me"],
     queryFn: getEmployerProfile,
-    staleTime: 60_000, // 1 minute
-    ...options,        // allow caller overrides (enabled, staleTime, etc.)
+    staleTime: 60_000, // 1 min
+    ...options,
   });
 }
 
+/**
+ * Save (create/update) the employer profile.
+ * Accepts either a JSON patch or a multipart FormData payload.
+ */
 export function useUpdateEmployerProfile() {
   const qc = useQueryClient();
-  return useMutation({
+  return useMutation<EmployerProfile, Error, SavePayload>({
     mutationFn: putEmployerProfile,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["employer", "me"] });

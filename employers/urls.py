@@ -1,4 +1,3 @@
-# employers/urls.py
 from django.urls import path
 
 from .agent_views import AgentHistoryView, EmployerAgentView
@@ -10,7 +9,7 @@ urlpatterns = [
     # ── Employer profile endpoints ─────────────────────────────
     path("employer/me/", EmployerMeView.as_view(), name="employer-me"),
     path("employer/me", EmployerMeView.as_view()),  # no-slash variant
-    # ── Employer AI assistant endpoints ────────────────────────
+    # ── Employer AI assistant endpoints ───────────────────────
     path(
         "agent/employer-assistant/",
         EmployerAgentView.as_view(),
