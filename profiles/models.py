@@ -6,7 +6,7 @@ from django.utils.translation import gettext_lazy as _
 
 
 # ────────────────────────────────────────────────────────────────
-# Core profile-related models (unchanged)
+# Core profile-related models
 # ────────────────────────────────────────────────────────────────
 class Skill(models.Model):
     """Canonical skill entry (e.g. “Python”, “Figma”)."""
@@ -93,7 +93,7 @@ class Education(models.Model):
 
 
 # ────────────────────────────────────────────────────────────────
-# NEW: Persistent chat transcript with agent_type support
+# Persistent chat transcript with agent_type support
 # ────────────────────────────────────────────────────────────────
 class AgentMessage(models.Model):
     class Role(models.TextChoices):
@@ -103,6 +103,7 @@ class AgentMessage(models.Model):
     class AgentType(models.TextChoices):
         INTERN = "intern", _("Intern")
         EMPLOYER = "employer", _("Employer")
+        APPLICATION = "application", _("Application")  # ← NEW option
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -110,7 +111,7 @@ class AgentMessage(models.Model):
         related_name="agent_messages",
     )
     role = models.CharField(max_length=9, choices=Role.choices)
-    agent_type = models.CharField(  # 🔥 New field
+    agent_type = models.CharField(
         max_length=20,
         choices=AgentType.choices,
         default=AgentType.INTERN,

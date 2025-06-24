@@ -1,14 +1,28 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { Building, MapPin } from "lucide-react";
-import { useInternships } from "@/hooks/useInternships";
+import { useOpenInternships } from "@/hooks/useOpenInternships";
+
+/* small pill component */
+function Pill({ label }: { label: string }) {
+  return (
+    <span className="inline-block rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+      {label}
+    </span>
+  );
+}
 
 export default function InternshipsPage() {
   /* -------------------------------------------------- */
   /* data                                               */
   /* -------------------------------------------------- */
-  const { data: internships, isLoading, error } = useInternships();
+  const {
+    data: internships,
+    isLoading,
+    error,
+  } = useOpenInternships({ staleTime: 60_000 });
 
   /* -------------------------------------------------- */
   /* loading / error states                             */
@@ -42,17 +56,18 @@ export default function InternshipsPage() {
         {internships && internships.length > 0 ? (
           <div className="space-y-4">
             {internships.map((it) => (
-              <div
+              <Link
                 key={it.id}
-                className="rounded-xl border bg-white p-6 shadow-sm transition-shadow hover:shadow-md"
+                href={`/internships/${it.id}`}
+                className="block rounded-xl border bg-white p-6 shadow-sm transition-shadow hover:shadow-md focus:outline-none focus:ring-4 focus:ring-emerald-300/40"
               >
                 <h2 className="text-xl font-semibold">{it.title}</h2>
 
                 {/* company + location */}
-                <p className="mt-1 flex items-center text-sm text-muted-foreground">
-                  {it.employer_logo ? (
+                <p className="mt-1 flex flex-wrap items-center gap-x-1 text-sm text-muted-foreground">
+                  {it.employer_logo_url ? (
                     <Image
-                      src={it.employer_logo}
+                      src={it.employer_logo_url}
                       alt={it.employer_name ?? "Company logo"}
                       width={24}
                       height={24}
@@ -63,7 +78,6 @@ export default function InternshipsPage() {
                       <Building className="h-4 w-4 text-muted-foreground" />
                     </span>
                   )}
-
                   <span className="ml-2">{it.employer_name}</span>
 
                   {it.is_remote ? (
@@ -85,7 +99,15 @@ export default function InternshipsPage() {
                     ? `${it.description.slice(0, 100)}…`
                     : it.description}
                 </p>
-              </div>
+
+                {/* requirement flags */}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {it.requires_cover_letter && <Pill label="Cover Letter" />}
+                  {it.requires_resume && <Pill label="Resume" />}
+                  {it.requires_references && <Pill label="References" />}
+                  {it.external_application_url && <Pill label="External Link" />}
+                </div>
+              </Link>
             ))}
           </div>
         ) : (

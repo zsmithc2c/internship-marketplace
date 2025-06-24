@@ -13,6 +13,15 @@ class Internship(models.Model):
     location = models.CharField(max_length=100, blank=True)
     is_remote = models.BooleanField(default=False)
     requirements = models.TextField(blank=True)
+
+    # ──────────────── NEW APPLICATION SETTINGS ────────────────
+    requires_cover_letter = models.BooleanField(default=False)
+    requires_resume = models.BooleanField(default=False)
+    requires_references = models.BooleanField(default=False)
+    external_application_url = models.URLField(blank=True, null=True)
+    is_open = models.BooleanField(default=True)  # listing open / closed
+    # ───────────────────────────────────────────────────────────
+
     posted_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -38,6 +47,12 @@ class Application(models.Model):
         on_delete=models.CASCADE,
         related_name="applications",
     )
+
+    # ──────────────── NEW SUBMITTED MATERIALS ────────────────
+    cover_letter = models.TextField(blank=True)
+    resume = models.FileField(upload_to="resumes/", blank=True, null=True)
+    references = models.TextField(blank=True)
+    # ──────────────────────────────────────────────────────────
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"

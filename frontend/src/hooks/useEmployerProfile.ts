@@ -19,6 +19,9 @@ export type EmployerProfile = {
   mission: string;
   location: string;
   website: string;
+
+  /* ── NEW: total hires made via Pipeline ─────────────────────── */
+  hires_made?: number;
 };
 
 type SavePayload = FormData | Partial<EmployerProfile>;

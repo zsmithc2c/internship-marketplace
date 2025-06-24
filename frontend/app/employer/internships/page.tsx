@@ -34,6 +34,11 @@ export default function EmployerInternshipsPage() {
     location: "",
     requirements: "",
     is_remote: false,
+    requires_cover_letter: false,
+    requires_resume: false,
+    requires_references: false,
+    external_application_url: "",
+    is_open: true,
   };
   const [newJob, setNewJob] = useState({ ...BLANK });
   const [editJob, setEditJob] = useState({ ...BLANK });
@@ -56,15 +61,20 @@ export default function EmployerInternshipsPage() {
   /* ⭐ listen for AI-generated draft */
   useEffect(() => {
     const onDraft = (e: Event) => {
-      const draft = (e as CustomEvent<Record<string, unknown>>).detail ?? {};
+      const d = (e as CustomEvent<Record<string, unknown>>).detail ?? {};
       setNewJob({
-        title: String(draft.title ?? ""),
-        description: String(draft.description ?? ""),
-        location: String(draft.location ?? ""),
-        requirements: String(draft.requirements ?? ""),
-        is_remote: Boolean(draft.remote),
+        title: String(d.title ?? ""),
+        description: String(d.description ?? ""),
+        location: String(d.location ?? ""),
+        requirements: String(d.requirements ?? ""),
+        is_remote: Boolean(d.remote),
+        requires_cover_letter: Boolean(d.requires_cover_letter),
+        requires_resume: Boolean(d.requires_resume),
+        requires_references: Boolean(d.requires_references),
+        external_application_url: String(d.external_application_url ?? ""),
+        is_open: true,
       });
-      setTab("new"); // jump to Create-New tab
+      setTab("new");
     };
     window.addEventListener("draft-listing", onDraft as EventListener);
     return () =>
@@ -94,12 +104,24 @@ export default function EmployerInternshipsPage() {
       location: it.location ?? "",
       requirements: it.requirements ?? "",
       is_remote: it.is_remote,
+      requires_cover_letter: !!it.requires_cover_letter,
+      requires_resume: !!it.requires_resume,
+      requires_references: !!it.requires_references,
+      external_application_url: it.external_application_url ?? "",
+      is_open: it.is_open ?? true,
     });
     setTab("listings");
   };
 
   const handleDelete = (id: number) => {
     if (confirm("Delete this internship listing?")) remove(id);
+  };
+
+  const toggleStatus = (job: EmployerInternship) => {
+    update(
+      { ...job, is_open: !job.is_open },
+      { onSuccess: () => setEditing(null) },
+    );
   };
 
   /* submit */
@@ -191,6 +213,36 @@ export default function EmployerInternshipsPage() {
               onChange={(v) => setEditJob({ ...editJob, requirements: v })}
             />
 
+            {/* NEW requirement flags */}
+            <Check
+              label="Require cover letter"
+              checked={editJob.requires_cover_letter}
+              onChange={(c) =>
+                setEditJob({ ...editJob, requires_cover_letter: c })
+              }
+            />
+            <Check
+              label="Require resume upload"
+              checked={editJob.requires_resume}
+              onChange={(c) =>
+                setEditJob({ ...editJob, requires_resume: c })
+              }
+            />
+            <Check
+              label="Require references"
+              checked={editJob.requires_references}
+              onChange={(c) =>
+                setEditJob({ ...editJob, requires_references: c })
+              }
+            />
+            <InputBlock
+              label="External application URL (optional)"
+              value={editJob.external_application_url}
+              onChange={(v) =>
+                setEditJob({ ...editJob, external_application_url: v })
+              }
+            />
+
             {updateErr && <ErrorNote err={updateErr} />}
 
             <div className="flex gap-3">
@@ -222,7 +274,9 @@ export default function EmployerInternshipsPage() {
               error={loadErr}
               onEdit={startEdit}
               onDelete={handleDelete}
+              onToggle={toggleStatus}
               deleting={deleting}
+              updating={updating}
             />
             {deleteErr && <ErrorNote err={deleteErr} />}
           </>
@@ -263,6 +317,34 @@ export default function EmployerInternshipsPage() {
               label="Requirements"
               value={newJob.requirements}
               onChange={(v) => setNewJob({ ...newJob, requirements: v })}
+            />
+
+            {/* NEW requirement flags */}
+            <Check
+              label="Require cover letter"
+              checked={newJob.requires_cover_letter}
+              onChange={(c) =>
+                setNewJob({ ...newJob, requires_cover_letter: c })
+              }
+            />
+            <Check
+              label="Require resume upload"
+              checked={newJob.requires_resume}
+              onChange={(c) => setNewJob({ ...newJob, requires_resume: c })}
+            />
+            <Check
+              label="Require references"
+              checked={newJob.requires_references}
+              onChange={(c) =>
+                setNewJob({ ...newJob, requires_references: c })
+              }
+            />
+            <InputBlock
+              label="External application URL (optional)"
+              value={newJob.external_application_url}
+              onChange={(v) =>
+                setNewJob({ ...newJob, external_application_url: v })
+              }
             />
 
             {createErr && <ErrorNote err={createErr} />}
@@ -357,9 +439,20 @@ function ListingsTable(props: {
   error: unknown;
   onEdit: (it: EmployerInternship) => void;
   onDelete: (id: number) => void;
+  onToggle: (it: EmployerInternship) => void;
   deleting: boolean;
+  updating: boolean;
 }) {
-  const { internships, isLoading, error, onEdit, onDelete, deleting } = props;
+  const {
+    internships,
+    isLoading,
+    error,
+    onEdit,
+    onDelete,
+    onToggle,
+    deleting,
+    updating,
+  } = props;
   return (
     <div className="overflow-x-auto rounded-lg border bg-white shadow-sm">
       <table className="w-full text-sm">
@@ -388,7 +481,13 @@ function ListingsTable(props: {
             internships.map((job) => (
               <tr key={job.id} className="border-t">
                 <td className="py-2 px-3">{job.title}</td>
-                <td className="py-2 px-3">Open</td>
+                <td className="py-2 px-3">
+                  {job.is_open ? (
+                    <span className="text-emerald-700">Open</span>
+                  ) : (
+                    <span className="text-gray-500">Closed</span>
+                  )}
+                </td>
                 <td className="py-2 px-3">
                   <Link
                     href={`/employer/internships/${job.id}/applications`}
@@ -403,6 +502,13 @@ function ListingsTable(props: {
                     className="text-emerald-700 hover:underline"
                   >
                     Edit
+                  </button>
+                  <button
+                    onClick={() => onToggle(job)}
+                    className="text-orange-600 hover:underline disabled:opacity-50"
+                    disabled={updating}
+                  >
+                    {job.is_open ? "Close" : "Re-open"}
                   </button>
                   <button
                     onClick={() => onDelete(job.id)}

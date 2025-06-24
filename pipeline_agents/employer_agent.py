@@ -24,7 +24,7 @@ from django.db import transaction
 import employers.tools as _e
 from employers.models import Employer
 from internships.models import Internship
-from internships.tools import InternshipDraft  # ← NEW
+from internships.tools import InternshipDraft  # already includes new fields
 from pipeline_agents.openai_client import client as async_client
 
 User = get_user_model()
@@ -139,7 +139,7 @@ def _list_listings_sync(user_email: str) -> str:
             "id": listing.id,
             "title": listing.title,
             "status": listing.status,
-        }  # ← clearer variable
+        }
         for listing in Internship.objects.filter(employer=employer).order_by(
             "created_at"
         )
@@ -183,11 +183,14 @@ def _company_fields_tool_for(user_email: str):
 
 
 # ────────────── FunctionTool: **draft new listing** ──────────────
-def _draft_listing_tool_for(user_email: str):  # <-- NEW
+def _draft_listing_tool_for(user_email: str):
     """
-    Accepts a JSON string describing a *new* internship. Does **not** hit
-    the database – just validates & echoes back so the front-end can
-    pre-fill the Create-New form.
+    Accepts a JSON string describing a *new* internship. The updated Pydantic
+    model `InternshipDraft` already includes:
+      • requires_cover_letter
+      • requires_resume
+      • requires_references
+      • external_application_url
     """
 
     @function_tool
@@ -204,7 +207,6 @@ def _draft_listing_tool_for(user_email: str):  # <-- NEW
         result = "draft_received"
         if settings.DEBUG:
             result += f" | draft={json.dumps(draft, default=str)}"
-        # We *return* the validated JSON so the view layer can forward it
         return json.dumps(draft, separators=(",", ":"))
 
     return _equip_openai_schema(draft_internship_v1)
@@ -212,6 +214,12 @@ def _draft_listing_tool_for(user_email: str):  # <-- NEW
 
 # ────────────── FunctionTool: listing create / update ──────────────
 def _listing_fields_tool_for(user_email: str):
+    """
+    Accepts JSON matching updated InternshipPayload which includes new fields:
+      • requires_cover_letter, requires_resume, requires_references,
+        external_application_url, is_open
+    """
+
     @function_tool
     async def set_internship_fields_v1(*, payload_json: str | None = None) -> str:
         if not payload_json or payload_json.strip() in ("{}", "null", ""):
@@ -318,25 +326,33 @@ user asks to *do* something (save data, navigate, etc.).**
 ║7│ navigate_to_v1           │ change UI page             │ { "path": "/employer/…" }          ║
 ╚═╧══════════════════════════╧════════════════════════════╧════════════════════════════════════╝
 
+Internship JSON fields (create/update) now include **optional**:
+• requires_cover_letter (bool)
+• requires_resume (bool)
+• requires_references (bool)
+• external_application_url (string / URL)
+• is_open (bool)  ← allow employer to close / reopen the listing
+
 IMPORTANT RULES
 1. **Always** use a tool for actions (saving, deleting, navigating). Otherwise,
    reply normally.
 2. For any tool that takes JSON (`*_fields_v1`, `draft_internship_v1`) send the
    data as a *double-encoded* JSON string inside `payload_json`.
 
-   Example – set company name & mission  
+   Example – mark listing as remote + require cover letter  
      {
-       "name": "set_company_fields_v1",
+       "name": "set_internship_fields_v1",
        "arguments": {
-         "payload_json": "{\"company_name\":\"Rocket Co\",\"mission\":\"Make space cheap\"}"
+         "payload_json": "{\"id\":7,\"is_remote\":true,\"requires_cover_letter\":true}"
        }
      }
 
 3. **Creating a brand-new listing**
-   • Gather title, description, location/remote & requirements.  
+   • Gather title, description, location/remote, requirements text, **and any
+     application requirements flags** (`requires_*`, `external_application_url`).  
    • Call **`draft_internship_v1`** with those fields.  
-   • Immediately call **`navigate_to_v1`** with `"/employer/internships#new"` so
-     the UI opens the *Create New* tab and pre-fills the form.
+   • Immediately call **`navigate_to_v1`** with
+     `"/employer/internships#new"` so the UI opens the *Create New* tab.
 
 4. **Editing an existing listing**
    • Call **`list_listings_v1`** first to fetch IDs.  
@@ -386,7 +402,7 @@ def build_employer_agent(*, user_email: str) -> Agent:
         model="gpt-4o",
         tools=[
             _company_fields_tool_for(user_email),
-            _draft_listing_tool_for(user_email),  # ← NEW
+            _draft_listing_tool_for(user_email),
             _listing_fields_tool_for(user_email),
             _list_listings_tool_for(user_email),
             _listing_applicants_tool_for(user_email),

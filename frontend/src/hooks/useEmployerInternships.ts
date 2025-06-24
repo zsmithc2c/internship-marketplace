@@ -13,6 +13,15 @@ export type EmployerInternship = {
   location: string | null;
   is_remote: boolean;
   requirements: string | null;
+
+  /* ── NEW optional application-settings ─────────────────────────── */
+  requires_cover_letter?: boolean;
+  requires_resume?: boolean;
+  requires_references?: boolean;
+  external_application_url?: string | null;
+  is_open?: boolean;
+  /* ──────────────────────────────────────────────────────────────── */
+
   posted_at: string;
   updated_at: string;
   /** number of applicants returned by the API (may be undefined if not annotated) */
@@ -23,20 +32,18 @@ export type EmployerInternship = {
 /*  API helpers                                                        */
 /* ------------------------------------------------------------------ */
 
-/* ── GET current employer’s listings ── */
 async function getMine(): Promise<EmployerInternship[]> {
   const res = await fetchWithAuth("/api/internships?mine=true");
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
-/* ── POST create listing ── */
-async function postListing(
-  data: Omit<
-    EmployerInternship,
-    "id" | "posted_at" | "updated_at" | "applications_count"
-  >
-): Promise<EmployerInternship> {
+/* POST create listing – all new fields are optional */
+type NewListingPayload = Omit<
+  EmployerInternship,
+  "id" | "posted_at" | "updated_at" | "applications_count"
+>;
+async function postListing(data: NewListingPayload): Promise<EmployerInternship> {
   const res = await fetchWithAuth("/api/internships", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -46,13 +53,12 @@ async function postListing(
   return res.json();
 }
 
-/* ── PUT update listing ── */
-async function putListing(
-  data: Omit<
-    EmployerInternship,
-    "posted_at" | "updated_at" | "applications_count"
-  >
-): Promise<EmployerInternship> {
+/* PUT update listing */
+type UpdateListingPayload = Omit<
+  EmployerInternship,
+  "posted_at" | "updated_at" | "applications_count"
+>;
+async function putListing(data: UpdateListingPayload): Promise<EmployerInternship> {
   const { id, ...fields } = data;
   const res = await fetchWithAuth(`/api/internships/${id}`, {
     method: "PUT",
@@ -63,7 +69,7 @@ async function putListing(
   return res.json();
 }
 
-/* ── DELETE listing ── */
+/* DELETE listing */
 async function deleteListing(id: number): Promise<void> {
   const res = await fetchWithAuth(`/api/internships/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error(await res.text());
@@ -73,7 +79,6 @@ async function deleteListing(id: number): Promise<void> {
 /*  React-Query hooks                                                  */
 /* ------------------------------------------------------------------ */
 
-/** List current employer’s internships */
 export function useEmployerInternships() {
   return useQuery({
     queryKey: ["internships", "mine"],
@@ -81,7 +86,6 @@ export function useEmployerInternships() {
   });
 }
 
-/** Create a new internship */
 export function useCreateInternship() {
   const qc = useQueryClient();
   return useMutation({
@@ -90,7 +94,6 @@ export function useCreateInternship() {
   });
 }
 
-/** Update an existing internship */
 export function useUpdateInternship() {
   const qc = useQueryClient();
   return useMutation({
@@ -99,7 +102,6 @@ export function useUpdateInternship() {
   });
 }
 
-/** Delete an internship */
 export function useDeleteInternship() {
   const qc = useQueryClient();
   return useMutation({

@@ -2,9 +2,7 @@ import { useEffect, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  useCreateInternship,
-} from "@/hooks/useEmployerInternships";
+import { useCreateInternship } from "@/hooks/useEmployerInternships";
 
 /*──────────────── types ─────────────────*/
 export interface InternshipDraft {
@@ -13,23 +11,20 @@ export interface InternshipDraft {
   location?: string;
   requirements?: string;
   remote?: boolean;
+
+  /* NEW draft flags – AI assistant may supply these */
+  requires_cover_letter?: boolean;
+  requires_resume?: boolean;
+  requires_references?: boolean;
+  external_application_url?: string;
 }
 
 interface NewListingFormProps {
-  /**
-   * If the Employer AI suggested a draft, pass it here to pre‑fill the form.
-   * All fields are optional.
-   */
+  /** Prefill when Employer AI suggests a draft (all fields optional). */
   initialDraft?: InternshipDraft;
-
-  /**
-   * Called after a successful Create — parent can switch tabs or refetch.
-   */
+  /** Called after a successful Create (parent can switch tabs). */
   onCreated?: () => void;
-
-  /**
-   * Called when the user clicks Reset (or after create succeeds).
-   */
+  /** Called when user clicks Reset (or after create succeeds). */
   onReset?: () => void;
 }
 
@@ -46,6 +41,11 @@ export default function NewListingForm({
     location: "",
     requirements: "",
     is_remote: false,
+    requires_cover_letter: false,
+    requires_resume: false,
+    requires_references: false,
+    external_application_url: "",
+    is_open: true,
   };
 
   /* local form state */
@@ -60,6 +60,13 @@ export default function NewListingForm({
       location: String(initialDraft.location ?? ""),
       requirements: String(initialDraft.requirements ?? ""),
       is_remote: Boolean(initialDraft.remote),
+      requires_cover_letter: Boolean(initialDraft.requires_cover_letter),
+      requires_resume: Boolean(initialDraft.requires_resume),
+      requires_references: Boolean(initialDraft.requires_references),
+      external_application_url: String(
+        initialDraft.external_application_url ?? "",
+      ),
+      is_open: true,
     });
   }, [initialDraft]);
 
@@ -77,7 +84,6 @@ export default function NewListingForm({
   /* reset helper */
   const reset = () => {
     setForm({ ...BLANK });
-    // Let any listeners know the draft has been cleared/used
     window.dispatchEvent(new Event("draft-listing-cleared"));
     onReset?.();
   };
@@ -130,9 +136,32 @@ export default function NewListingForm({
         onChange={(c) => set("is_remote", c)}
       />
       <InputBlock
-        label="Requirements"
+        label="Requirements (general)"
         value={form.requirements}
         onChange={(v) => set("requirements", v)}
+      />
+
+      {/* ── NEW requirement flags ───────────────────────────── */}
+      <Check
+        label="Require cover letter"
+        checked={form.requires_cover_letter}
+        onChange={(c) => set("requires_cover_letter", c)}
+      />
+      <Check
+        label="Require resume upload"
+        checked={form.requires_resume}
+        onChange={(c) => set("requires_resume", c)}
+      />
+      <Check
+        label="Require references"
+        checked={form.requires_references}
+        onChange={(c) => set("requires_references", c)}
+      />
+      <InputBlock
+        label="External application URL (optional)"
+        value={form.external_application_url}
+        onChange={(v) => set("external_application_url", v)}
+        placeholder="https://…"
       />
 
       {createErr && <ErrorNote err={createErr} />}
@@ -145,7 +174,12 @@ export default function NewListingForm({
         >
           {creating ? "Creating…" : "Create Internship"}
         </Button>
-        <Button type="button" variant="secondary" onClick={reset} disabled={creating}>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={reset}
+          disabled={creating}
+        >
           Reset
         </Button>
       </div>

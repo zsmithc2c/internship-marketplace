@@ -27,8 +27,11 @@ type DonePayload = {
   listings_updated_at?: string;          // saved create / edit
   listing_deleted?: number | string;     // deletion id / slug
 
-  /* ⭐ NEW – draft listing (prefill Create-New) */
+  /* NEW – draft listing (prefill Create-New) */
   draft_listing?: Record<string, unknown>;
+
+  /* NEW – application assistant draft */
+  application_draft?: Record<string, unknown>;
 };
 
 /* ─────────────────────── role helper ─────────────────────── */
@@ -63,10 +66,22 @@ async function streamAgent(
   onDelta: (tok: string) => void,
 ): Promise<DonePayload> {
   const role = getRole();
-  const endpoint =
-    role === "EMPLOYER"
-      ? "/api/agent/employer-assistant/"
-      : "/api/agent/profile-builder/";
+
+  /* ── endpoint selection ───────────────────────────── */
+  let endpoint: string;
+  if (role === "EMPLOYER") {
+    endpoint = "/api/agent/employer-assistant/";
+  } else {
+    // Intern – check if on internship detail page
+    const path = globalThis.location?.pathname ?? "/";
+    const match = path.match(/^\/internships\/(\d+)(?:\/|$)/);
+    if (match) {
+      const internshipId = match[1];
+      endpoint = `/api/agent/application-assistant/${internshipId}/`;
+    } else {
+      endpoint = "/api/agent/profile-builder/";
+    }
+  }
 
   const res = await fetchWithAuth(endpoint, {
     method: "POST",
@@ -192,7 +207,12 @@ export function useVoiceAgent() {
   const qc = useQueryClient();
   const router = useRouter();
   const role = getRole();
-  const key = role === "EMPLOYER" ? "employer-assistant" : "profile-builder";
+  const key =
+    role === "EMPLOYER"
+      ? "employer-assistant"
+      : globalThis.location?.pathname.match(/^\/internships\/\d+/)
+      ? "application-assistant"
+      : "profile-builder";
 
   const navigate = debounce((path: string) => router.push(path), 1000);
 
@@ -316,12 +336,10 @@ export function useVoiceAgent() {
             qc.invalidateQueries({ queryKey: ["employer", "me"] });
           }
 
-          // ⭐ Live DB changes: refetch listings
           if ("listings_updated_at" in done || "listing_deleted" in done) {
             qc.invalidateQueries({ queryKey: ["internships", "mine"] });
           }
 
-          // ⭐ Draft only: broadcast event & open Create-New tab
           if (done.draft_listing) {
             window.dispatchEvent(
               new CustomEvent("draft-listing", { detail: done.draft_listing }),
@@ -346,6 +364,15 @@ export function useVoiceAgent() {
               exact: true,
             });
             window.dispatchEvent(new Event("profile-saved"));
+          }
+
+          /* NEW – application draft */
+          if (done.application_draft) {
+            window.dispatchEvent(
+              new CustomEvent("application-draft", {
+                detail: done.application_draft,
+              }),
+            );
           }
         }
       } catch (err) {

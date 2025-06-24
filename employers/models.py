@@ -6,7 +6,9 @@ class Employer(models.Model):
     """Employer profile (one-to-one with accounts.User)."""
 
     user = models.OneToOneField(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="employer"
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="employer",
     )
 
     # — required —
@@ -18,8 +20,9 @@ class Employer(models.Model):
     location = models.CharField(max_length=100, blank=True, null=True)
     website = models.URLField(blank=True, null=True)
 
+    # —───────── NEW METRIC FIELD ──────────
+    hires_made = models.PositiveIntegerField(default=0)
+    # ───────────────────────────────────────
+
     def __str__(self) -> str:
-        # Show company name if set, otherwise use user email as identifier
-        if self.company_name:
-            return self.company_name
-        return f"Employer profile for {self.user.email}"
+        return self.company_name or f"Employer profile for {self.user.email}"

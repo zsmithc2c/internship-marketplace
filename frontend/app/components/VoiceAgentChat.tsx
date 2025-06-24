@@ -1,4 +1,3 @@
-// frontend/app/components/VoiceAgentChat.tsx
 "use client";
 
 import { useVoiceAgent } from "@/hooks/useVoiceAgent";
@@ -13,10 +12,10 @@ export default function VoiceAgentChat() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [history.length, sending]);
 
-  /* preserve order (history already oldest→newest) */
+  /* history is already ordered oldest→newest */
   const ordered = useMemo(() => [...history], [history]);
 
-  /* ---------- render ---------- */
+  /* ─────────────── render ─────────────── */
   return (
     <div className="mx-auto max-w-xl space-y-4">
       {/* CHAT HISTORY */}
@@ -28,11 +27,11 @@ export default function VoiceAgentChat() {
             return (
               <p
                 key={i}
-                className={
+                className={`whitespace-pre-wrap break-words ${
                   m.role === "user"
                     ? "text-right text-blue-800"
                     : "text-left text-gray-800"
-                }
+                }`}
               >
                 <span className="mr-1 font-bold">
                   {m.role === "user" ? "You:" : "AI:"}

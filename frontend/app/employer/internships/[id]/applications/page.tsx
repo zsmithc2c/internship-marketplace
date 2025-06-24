@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -27,11 +27,16 @@ export default function ApplicationsPage() {
     isLoading,
     error,
   } = useApplications(idIsValid ? internshipId : 0);
-  
+
   const {
     mutate: updateApp,
     error: updateError,
   } = useUpdateApplication(internshipId);
+
+  /* -------- detail viewer ---------- */
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const selected = apps?.find((a) => a.id === selectedId) ?? null;
+  const closeDetail = () => setSelectedId(null);
 
   /* if ID invalid just render nothing (redirect handled above) */
   if (!idIsValid) return null;
@@ -80,7 +85,14 @@ export default function ApplicationsPage() {
                   <tr key={app.id} className="border-b">
                     <td className="py-2">{app.intern_email}</td>
                     <td className="py-2 capitalize">{app.status}</td>
-                    <td className="py-2">
+                    <td className="py-2 space-x-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => setSelectedId(app.id)}
+                      >
+                        View
+                      </Button>
                       {app.status === "pending" ? (
                         <>
                           <Button
@@ -94,7 +106,7 @@ export default function ApplicationsPage() {
                           <Button
                             size="sm"
                             variant="secondary"
-                            className="ml-2 text-red-600"
+                            className="text-red-600"
                             onClick={() =>
                               updateApp({ id: app.id, status: "rejected" })
                             }
@@ -103,9 +115,7 @@ export default function ApplicationsPage() {
                           </Button>
                         </>
                       ) : (
-                        <em className="text-xs text-muted-foreground">
-                          No actions
-                        </em>
+                        <em className="text-xs text-muted-foreground">No actions</em>
                       )}
                     </td>
                   </tr>
@@ -128,6 +138,84 @@ export default function ApplicationsPage() {
           </table>
         </div>
       </section>
+
+      {/* ─────────── Detail Modal ─────────── */}
+      {selected && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
+            <h2 className="mb-4 text-xl font-semibold">Application Details</h2>
+
+            <p className="mb-2 text-sm text-muted-foreground">
+              <strong>Applicant:</strong> {selected.intern_email}
+            </p>
+
+            {/* resume */}
+            {selected.resume_url ? (
+              <p className="mb-4 text-sm">
+                <strong>Resume:</strong>{" "}
+                <a
+                  href={selected.resume_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary underline"
+                >
+                  Download
+                </a>
+              </p>
+            ) : null}
+
+            {/* cover letter */}
+            {selected.cover_letter && (
+              <div className="mb-6">
+                <h3 className="mb-1 font-medium">Cover Letter</h3>
+                <p className="whitespace-pre-wrap rounded-md border bg-gray-50 p-3 text-sm">
+                  {selected.cover_letter}
+                </p>
+              </div>
+            )}
+
+            {/* references */}
+            {selected.references && (
+              <div className="mb-6">
+                <h3 className="mb-1 font-medium">References</h3>
+                <p className="whitespace-pre-wrap rounded-md border bg-gray-50 p-3 text-sm">
+                  {selected.references}
+                </p>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3">
+              {selected.status === "pending" && (
+                <>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      updateApp({ id: selected.id, status: "accepted" });
+                      closeDetail();
+                    }}
+                  >
+                    Accept
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="text-red-600"
+                    onClick={() => {
+                      updateApp({ id: selected.id, status: "rejected" });
+                      closeDetail();
+                    }}
+                  >
+                    Reject
+                  </Button>
+                </>
+              )}
+              <Button variant="secondary" size="sm" onClick={closeDetail}>
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
