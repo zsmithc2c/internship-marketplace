@@ -19,36 +19,34 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /* ───────── helpers & variants ───────── */
-const fadeUp = {
-  hidden: { opacity: 0, y: 30 },
-  visible: (i = 0) => ({
-    opacity: 1,
-    y: 0,
-    transition: { delay: i * 0.12, duration: 0.8, ease: "easeOut" },
+const pop = {
+  hidden: (i: number) => ({
+    opacity: 0,
+    x: i % 2 === 0 ? -40 : 40,
+    scale: 0.9,
   }),
+  visible: {
+    opacity: 1,
+    x: 0,
+    scale: 1,
+    transition: { duration: 0.6, ease: "easeOut" },
+  },
+};
+
+const fadeHeading = {
+  hidden: { opacity: 0, y: 30 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.7 } },
 };
 
 /* demo testimonials */
 const TESTIMONIALS = [
-  {
-    quote:
-      "Pipeline helped me land my dream computer-vision internship in just two weeks!",
-    name: "Aisha · CS student",
-  },
-  {
-    quote:
-      "We posted a role on Monday and had three stellar applicants by Tuesday.",
-    name: "Leo · CTO @Robotics-X",
-  },
-  {
-    quote:
-      "The AI mentor polished my profile far better than any career center ever did.",
-    name: "Mateo · Data-science major",
-  },
+  { quote: "Example 1 – some testimonial or message", name: "Aisha · CS Student" },
+  { quote: "Example 2 – some testimonial or message", name: "Leo · ACC Student" },
+  { quote: "Example 3 – some testimonial or message", name: "Mateo · Data-science major" },
 ];
 
 export default function LandingPage() {
-  /* auto-scroll testimonials */
+  /* ─── auto-scroll testimonials ─── */
   const carouselRef = useRef<HTMLUListElement>(null);
   useEffect(() => {
     const node = carouselRef.current;
@@ -58,11 +56,11 @@ export default function LandingPage() {
       idx = (idx + 1) % TESTIMONIALS.length;
       node.style.transform = `translateX(-${(idx * 100) / TESTIMONIALS.length}%)`;
     };
-    const intervalId = setInterval(cycle, 6000);
-    return () => clearInterval(intervalId);
+    const id = setInterval(cycle, 6_000);
+    return () => clearInterval(id);
   }, []);
 
-  /* scroll-cue bounce */
+  /* ─── scroll-cue bounce ─── */
   const arrowControls = useAnimation();
   useEffect(() => {
     arrowControls.start({
@@ -71,26 +69,32 @@ export default function LandingPage() {
     });
   }, [arrowControls]);
 
-  /* timeline in-view animation */
-  const timelineRef = useRef<HTMLDivElement | null>(null);
-  const isInView = useInView(timelineRef, { once: true, amount: 0.2 });
+  /* ─── timeline animation ─── */
+  const timelineRef = useRef<HTMLDivElement>(null);
+  const isInView = useInView(timelineRef, { once: true, amount: 0.5 });
   const timelineControls = useAnimation();
   useEffect(() => {
     if (isInView) timelineControls.start("visible");
   }, [isInView, timelineControls]);
 
+  /* ---------- shared button styles (indigo theme) ---------- */
+  const solidPrimaryBtn =
+    "border border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-700 active:bg-indigo-800";
+  const outlinePrimaryBtn =
+    "border border-indigo-600 text-indigo-700 hover:bg-indigo-50";
+
   return (
     <>
       {/* ───────── HERO ───────── */}
-      <header className="relative isolate flex min-h-[90vh] flex-col items-center justify-center overflow-hidden bg-gradient-to-br from-teal-600 via-sky-600 to-indigo-600 px-6 text-center text-white">
+      <header className="relative isolate flex min-h-[90vh] flex-col items-center justify-center overflow-hidden bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-600 px-6 text-center text-white">
         {/* floating blobs */}
         <motion.div
-          className="pointer-events-none absolute -left-40 -top-40 size-[32rem] rounded-full bg-teal-300/20 blur-3xl"
+          className="pointer-events-none absolute -left-40 -top-40 size-[32rem] rounded-full bg-indigo-300/20 blur-3xl"
           animate={{ y: [0, 30, -10, 0], x: [0, -10, 20, 0] }}
           transition={{ duration: 18, repeat: Infinity }}
         />
         <motion.div
-          className="pointer-events-none absolute bottom-0 right-0 size-[40rem] rounded-full bg-indigo-400/20 blur-3xl"
+          className="pointer-events-none absolute bottom-0 right-0 size-[40rem] rounded-full bg-pink-400/20 blur-3xl"
           animate={{ y: [0, -20, 10, 0], x: [0, 10, -30, 0] }}
           transition={{ duration: 20, repeat: Infinity }}
         />
@@ -107,16 +111,19 @@ export default function LandingPage() {
 
         <motion.h1
           className="relative z-10 max-w-4xl text-4xl font-extrabold leading-tight md:text-5xl"
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0, transition: { duration: 0.6 } }}
+          variants={fadeHeading}
+          initial="hidden"
+          animate="visible"
         >
           Your Career&nbsp;Starts&nbsp;Here
         </motion.h1>
 
         <motion.p
           className="relative z-10 mt-4 max-w-2xl text-lg opacity-90"
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0, transition: { delay: 0.1, duration: 0.6 } }}
+          variants={fadeHeading}
+          initial="hidden"
+          animate="visible"
+          transition={{ delay: 0.1 }}
         >
           Pipeline connects ambitious students with forward-thinking employers,
           making internships friction-free for everyone.
@@ -133,11 +140,11 @@ export default function LandingPage() {
       {/* ───────── STUDENTS ───────── */}
       <section className="mx-auto max-w-6xl space-y-12 px-6 py-28">
         <motion.h2
-          className="text-center text-3xl font-bold text-[--accent-primary]"
+          className="text-center text-3xl font-bold text-indigo-600"
+          variants={fadeHeading}
           initial="hidden"
           whileInView="visible"
-          viewport={{ once: true, amount: 0.2 }}
-          variants={fadeUp}
+          viewport={{ once: true, amount: 0.5 }}
         >
           For Students
         </motion.h2>
@@ -146,7 +153,7 @@ export default function LandingPage() {
           className="grid gap-6 md:grid-cols-3"
           initial="hidden"
           whileInView="visible"
-          viewport={{ once: true, amount: 0.2 }}
+          viewport={{ once: true, amount: 0.5 }}
         >
           {[
             {
@@ -161,14 +168,14 @@ export default function LandingPage() {
               icon: Sparkles,
               text: "Get AI-matched to roles that fit your skills & availability.",
             },
-          ].map(({ icon: Icon, text }, idx) => (
+          ].map(({ icon: Icon, text }, i) => (
             <motion.li
               key={text}
-              custom={idx}
-              variants={fadeUp}
+              custom={i}
+              variants={pop}
               className="rounded-2xl bg-gray-50 p-8 shadow-sm"
             >
-              <Icon className="mb-4 h-8 w-8 text-[--accent-primary]" />
+              <Icon className="mb-4 h-8 w-8 text-indigo-600" />
               <p className="text-sm leading-relaxed">{text}</p>
             </motion.li>
           ))}
@@ -177,19 +184,13 @@ export default function LandingPage() {
         <div className="mt-8 flex flex-wrap justify-center gap-4">
           <Link
             href="/signup"
-            className={cn(
-              buttonVariants({ variant: "ghost", size: "lg" }),
-              "border border-[--accent-primary] bg-[--accent-primary] text-white hover:bg-[--accent-primary]/90 active:bg-[--accent-primary]/80"
-            )}
+            className={cn(buttonVariants({ variant: "ghost", size: "lg" }), solidPrimaryBtn)}
           >
             Sign up
           </Link>
           <Link
             href="/login"
-            className={cn(
-              buttonVariants({ variant: "ghost", size: "lg" }),
-              "border border-[--accent-primary] text-[--accent-primary] hover:bg-teal-50"
-            )}
+            className={cn(buttonVariants({ variant: "ghost", size: "lg" }), outlinePrimaryBtn)}
           >
             Log in
           </Link>
@@ -197,14 +198,14 @@ export default function LandingPage() {
       </section>
 
       {/* ───────── EMPLOYERS ───────── */}
-      <section className="bg-gray-50/60 py-28">
+      <section className="bg-indigo-50/60 py-28">
         <div className="mx-auto max-w-6xl space-y-12 px-6">
           <motion.h2
-            className="text-center text-3xl font-bold text-[--accent-primary]"
+            className="text-center text-3xl font-bold text-indigo-600"
+            variants={fadeHeading}
             initial="hidden"
             whileInView="visible"
-            viewport={{ once: true, amount: 0.2 }}
-            variants={fadeUp}
+            viewport={{ once: true, amount: 0.5 }}
           >
             For Employers
           </motion.h2>
@@ -213,7 +214,7 @@ export default function LandingPage() {
             className="grid gap-6 md:grid-cols-3"
             initial="hidden"
             whileInView="visible"
-            viewport={{ once: true, amount: 0.2 }}
+            viewport={{ once: true, amount: 0.5 }}
           >
             {[
               {
@@ -228,14 +229,14 @@ export default function LandingPage() {
                 icon: Send,
                 text: "Schedule interviews & send offers without leaving Pipeline.",
               },
-            ].map(({ icon: Icon, text }, idx) => (
+            ].map(({ icon: Icon, text }, i) => (
               <motion.li
                 key={text}
-                custom={idx}
-                variants={fadeUp}
+                custom={i}
+                variants={pop}
                 className="rounded-2xl bg-white p-8 shadow-sm"
               >
-                <Icon className="mb-4 h-8 w-8 text-[--accent-primary]" />
+                <Icon className="mb-4 h-8 w-8 text-indigo-600" />
                 <p className="text-sm leading-relaxed">{text}</p>
               </motion.li>
             ))}
@@ -244,19 +245,13 @@ export default function LandingPage() {
           <div className="mt-8 flex flex-wrap justify-center gap-4">
             <Link
               href="/signup"
-              className={cn(
-                buttonVariants({ variant: "ghost", size: "lg" }),
-                "border border-[--accent-primary] bg-[--accent-primary] text-white hover:bg-[--accent-primary]/90 active:bg-[--accent-primary]/80"
-              )}
+              className={cn(buttonVariants({ variant: "ghost", size: "lg" }), solidPrimaryBtn)}
             >
-              Create account
+              Sign up
             </Link>
             <Link
               href="/login"
-              className={cn(
-                buttonVariants({ variant: "ghost", size: "lg" }),
-                "border border-[--accent-primary] text-[--accent-primary] hover:bg-teal-50"
-              )}
+              className={cn(buttonVariants({ variant: "ghost", size: "lg" }), outlinePrimaryBtn)}
             >
               Log in
             </Link>
@@ -267,25 +262,36 @@ export default function LandingPage() {
       {/* ───────── HOW IT WORKS ───────── */}
       <section
         ref={timelineRef}
-        className="mx-auto max-w-5xl px-6 py-28 text-center"
+        className="bg-gray-50 py-28 px-6 text-center"
       >
         <motion.h2
-          className="text-3xl font-bold text-[--accent-primary]"
-          variants={fadeUp}
+          className="text-3xl font-bold text-indigo-600"
+          variants={fadeHeading}
           initial="hidden"
           animate="visible"
         >
           How Pipeline Works
         </motion.h2>
 
+        <motion.p
+          className="mx-auto mt-4 max-w-3xl text-gray-600"
+          variants={fadeHeading}
+          initial="hidden"
+          animate="visible"
+        >
+          Pipeline&rsquo;s conversational AI Agent is your personal guide. It
+          learns about intern candidates&rsquo; skills and strengths to match
+          them with employers and assist with applications. Employers can
+          quickly post job listings, discover curated matches, and connect with
+          talent — find the right fit in minutes.
+        </motion.p>
+
         <motion.ol
-          className="mt-16 space-y-12 md:space-y-0 md:divide-x md:divide-gray-200 md:flex md:justify-between"
+          className="mt-16 space-y-12 md:flex md:justify-between md:divide-x md:divide-gray-200 md:space-y-0"
           initial="hidden"
           animate={timelineControls}
           variants={{
-            visible: {
-              transition: { staggerChildren: 0.15, delayChildren: 0.2 },
-            },
+            visible: { transition: { staggerChildren: 0.15, delayChildren: 0.2 } },
           }}
         >
           {[
@@ -304,15 +310,14 @@ export default function LandingPage() {
               title: "Interview & hire",
               desc: "Chat, schedule, and send offers right inside Pipeline.",
             },
-          ].map(({ step, title, desc }, idx) => (
+          ].map(({ step, title, desc }, i) => (
             <motion.li
               key={step}
-              custom={idx}
-              variants={fadeUp}
+              custom={i}
+              variants={pop}
               className="flex-1 px-6"
             >
-              {/* accent variable wasn't applied in some builds, so use explicit color */}
-              <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-[#06b6d4] text-white shadow">
+              <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-indigo-600 text-white shadow">
                 {step}
               </div>
               <h3 className="mt-4 text-lg font-semibold">{title}</h3>
@@ -324,7 +329,7 @@ export default function LandingPage() {
 
       {/* ───────── TESTIMONIALS ───────── */}
       <section className="bg-white py-28">
-        <h2 className="text-center text-3xl font-bold text-[--accent-primary]">
+        <h2 className="text-center text-3xl font-bold text-indigo-600">
           Success Stories
         </h2>
 
@@ -355,7 +360,7 @@ export default function LandingPage() {
       </section>
 
       {/* ───────── FINAL CTA ───────── */}
-      <section className="bg-gradient-to-br from-teal-600 via-sky-600 to-indigo-600 py-24 text-center text-white">
+      <section className="bg-gradient-to-br from-indigo-700 via-purple-700 to-pink-700 py-24 text-center text-white">
         <h2 className="text-3xl font-bold">Ready to get started?</h2>
         <p className="mx-auto mt-4 max-w-lg opacity-90">
           Join Pipeline today and take the first step toward hiring talent or
@@ -364,7 +369,10 @@ export default function LandingPage() {
         <div className="mt-8 flex flex-wrap justify-center gap-4">
           <Link
             href="/signup"
-            className={cn(buttonVariants({ variant: "default", size: "lg" }))}
+            className={cn(
+              buttonVariants({ variant: "default", size: "lg" }),
+              "bg-white text-indigo-600 hover:bg-white/90 focus-visible:ring-white"
+            )}
           >
             Sign up free
           </Link>
