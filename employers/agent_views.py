@@ -29,6 +29,8 @@ log = logging.getLogger(__name__)
 
 
 # ───────────────────────── helpers ──────────────────────────────
+
+
 def make_prompt(hist: List[AgentMessage], latest: str) -> str:
     """Concatenate conversation history into a single prompt string."""
     return "\n".join(
@@ -109,6 +111,8 @@ async def _invoke_tool(tool, raw_args: Dict | str) -> str:
 
 
 # ───────────────────────── Agent chat view ─────────────────────────
+
+
 class EmployerAgentView(APIView):
     """
     POST /api/agent/employer-assistant/
@@ -118,8 +122,8 @@ class EmployerAgentView(APIView):
       ...
       { "delta": "", "done": true,
         "employer": {..},                 # if company profile changed
-        "listings_updated_at": "...",     # if any listing was added/edited/deleted
-        "listing_deleted": true,          # only on deletion
+        "listings_updated_at": "...",     # timestamp when listings changed
+        "listing_deleted": 123,            # id of deleted listing (if any)
         "audio_base64": "..." }           # if TTS succeeded
     """
 
@@ -171,9 +175,9 @@ class EmployerAgentView(APIView):
         # ─────────── background worker (async) ───────────
         def worker() -> None:
             async def _run() -> None:
-                company_updated = False
-                listings_updated = False
-                listing_deleted = False
+                company_updated: bool = False
+                listings_updated: bool = False
+                deleted_listing_id: Optional[int] = None
 
                 try:
                     msgs: List[Dict] = [system_msg, user_msg]
@@ -251,7 +255,10 @@ class EmployerAgentView(APIView):
                                 listings_updated = True
                             elif fn_name == "delete_internship_v1":
                                 listings_updated = True
-                                listing_deleted = True
+                                # capture the listing id (if provided) so the UI knows what disappeared
+                                if isinstance(kwargs, dict):
+                                    deleted_listing_id = kwargs.get("listing_id")
+
                             elif (
                                 fn_name == "navigate_to_v1"
                                 and isinstance(kwargs, dict)
@@ -287,7 +294,7 @@ class EmployerAgentView(APIView):
                             "reply": "".join(collected),
                             "company_updated": company_updated,
                             "listings_updated": listings_updated,
-                            "listing_deleted": listing_deleted,
+                            "deleted_listing_id": deleted_listing_id,
                         }
                     )
                 except Exception as exc:
@@ -344,8 +351,8 @@ class EmployerAgentView(APIView):
 
                 if item.get("listings_updated"):
                     payload["listings_updated_at"] = datetime.utcnow().isoformat()
-                    if item.get("listing_deleted"):
-                        payload["listing_deleted"] = True
+                    if item.get("deleted_listing_id") is not None:
+                        payload["listing_deleted"] = item["deleted_listing_id"]
 
                 if audio_b64:
                     payload["audio_base64"] = audio_b64
@@ -357,6 +364,8 @@ class EmployerAgentView(APIView):
 
 
 # ───────────────────────── chat history view ─────────────────────
+
+
 class AgentHistoryView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 

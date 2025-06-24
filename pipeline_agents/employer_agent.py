@@ -7,6 +7,7 @@ Capabilities
 • Build / edit the company profile
 • Create, update, delete internship listings
 • List applicants for a listing
+• Fetch current listings (id + title)
 • Instruct the front-end to navigate pages
 """
 
@@ -57,28 +58,46 @@ def _save_company_sync(user_email: str, data: dict) -> str:
             ser.is_valid(raise_exception=True)
             ser.save()
 
-    # Return JSON snapshot for DEBUG diagnostics
-    return json.dumps(data, default=str)
+    return json.dumps(data, default=str)  # DEBUG snapshot
 
 
 def _save_listing_sync(user_email: str, data: dict, listing_id: int | None):
+    """
+    Create or update an internship listing.
+
+    • Normal path: supply an id ⇒ update; omit id ⇒ create.
+    • Safety net: if employer has exactly ONE listing and no id supplied,
+      treat as an update (prevents accidental duplicates).
+    """
     user = User.objects.get(email=user_email)
     employer, _ = Employer.objects.get_or_create(user=user)
     created_new = False
 
+    # ── UPDATE (explicit id) ───────────────────────────────────────────
     if listing_id:
         listing = Internship.objects.get(id=listing_id, employer=employer)
         for k, v in data.items():
             setattr(listing, k, v)
         listing.full_clean()
         listing.save()
+
     else:
-        if not {"title", "description"} <= data.keys():
-            raise ValueError("title and description are required")
-        listing = Internship(employer=employer, **data)
-        listing.full_clean()
-        listing.save()
-        created_new = True
+        # ── UPDATE (implicit – only one listing exists) ────────────────
+        only_listing = Internship.objects.filter(employer=employer)[:2]
+        if len(only_listing) == 1:
+            listing = only_listing[0]
+            for k, v in data.items():
+                setattr(listing, k, v)
+            listing.full_clean()
+            listing.save()
+        # ── CREATE ─────────────────────────────────────────────────────
+        else:
+            if not {"title", "description"} <= data.keys():
+                raise ValueError("title and description are required")
+            listing = Internship(employer=employer, **data)
+            listing.full_clean()
+            listing.save()
+            created_new = True
 
     snap = data.copy() | {"id": listing.id}
     return json.dumps(snap, default=str), created_new
@@ -108,6 +127,18 @@ def _delete_listing_sync(user_email: str, listing_id: int) -> str:
     snap = {"id": listing.id, "title": listing.title}
     listing.delete()
     return json.dumps(snap, default=str)
+
+
+def _list_listings_sync(user_email: str) -> str:  # ← fixed variable name
+    user = User.objects.get(email=user_email)
+    employer, _ = Employer.objects.get_or_create(user=user)
+    listings = [
+        {"id": listing.id, "title": listing.title, "status": listing.status}
+        for listing in Internship.objects.filter(employer=employer).order_by(
+            "created_at"
+        )
+    ]
+    return json.dumps(listings, default=str)
 
 
 # ────────────── FunctionTool: company-profile update ──────────────
@@ -172,6 +203,23 @@ def _listing_fields_tool_for(user_email: str):
     return _equip_openai_schema(set_internship_fields_v1)
 
 
+# ────────────── FunctionTool: list CURRENT listings ──────────────
+def _list_listings_tool_for(user_email: str):  # ← NEW
+    @function_tool
+    async def list_listings_v1() -> str:
+        data = await sync_to_async(_list_listings_sync, thread_sensitive=True)(
+            user_email
+        )
+        from django.conf import settings
+
+        result = "listings_returned"
+        if settings.DEBUG:
+            result += f" | listings={data}"
+        return result
+
+    return _equip_openai_schema(list_listings_v1)
+
+
 # ────────────── FunctionTool: list applicants ──────────────
 def _listing_applicants_tool_for(user_email: str):
     @function_tool
@@ -221,7 +269,7 @@ _SYSTEM_INSTRUCTIONS = r"""
 You are the **Pipeline Employer Assistant** – an upbeat, knowledgeable guide
 for companies using the internship marketplace.
 
-Below are your function-tools.  **Always call a tool when the user asks to
+Below are your function-tools. **Always call a tool when the user asks to
 perform the corresponding action.**
 
 ╔═╤══════════════════════════╤════════════════════════════╤════════════════════════════════════╗
@@ -229,9 +277,10 @@ perform the corresponding action.**
 ╟─┼──────────────────────────┼────────────────────────────┼────────────────────────────────────╢
 ║1│ set_company_fields_v1    │ create / update profile    │ { "payload_json": "<JSON-string>" }║
 ║2│ set_internship_fields_v1 │ create / update listing    │ { "payload_json": "<JSON-string>" }║
-║3│ list_applicants_v1       │ list applicants            │ { "listing_id": 123 }              ║
-║4│ delete_internship_v1     │ delete a listing           │ { "listing_id": 123 }              ║
-║5│ navigate_to_v1           │ change UI page             │ { "path": "/employer/…" }          ║
+║3│ list_listings_v1         │ get existing listings      │ {}                                 ║
+║4│ list_applicants_v1       │ list applicants            │ { "listing_id": 123 }              ║
+║5│ delete_internship_v1     │ delete a listing           │ { "listing_id": 123 }              ║
+║6│ navigate_to_v1           │ change UI page             │ { "path": "/employer/…" }          ║
 ╚═╧══════════════════════════╧════════════════════════════╧════════════════════════════════════╝
 
 • After gathering data, you may optionally navigate to "/employer/internships#new"
@@ -251,17 +300,23 @@ IMPORTANT RULES
        }  
      }
 
-3. Wait for explicit confirmation before deleting data or posting a listing
+3. **Before editing a listing** call `list_listings_v1` to fetch current IDs,
+   then include the correct `id` when using `set_internship_fields_v1`.
+   • If exactly one listing exists and the user doesn’t specify an id,
+     treat the update as applying to that single listing.
+
+4. Wait for explicit confirmation before deleting data or posting a new listing
    unless the request is crystal-clear.
-4. After calling a tool, summarise the result in plain language.
-5. Keep replies concise, friendly, action-oriented
-6. If the user has an incomplete profile, push them to complete it and let them know that they after a quick profile setup, they will be all set to post internship listings and find matches quickly
+5. After calling a tool, summarise the result in plain language.
+6. Keep replies concise, friendly, action-oriented.
+7. If the company profile is incomplete, encourage the user to finish it so
+   they can post internships and find matches quickly.
 
 ONBOARDING FLOW
 • Greet and introduce yourself.
 • Explain that the first step is completing the Company Profile.
   If any of company_name, mission, location or website are missing,
-  encourage the user to provide them.
+  prompt the user for them.
 • Offer to open /employer/profile; on approval call navigate_to_v1 with
   {"path":"/employer/profile"}.
 • Gather each profile field and save via set_company_fields_v1 with brief
@@ -273,7 +328,8 @@ ONBOARDING FLOW
 INTERNSHIP LISTING WORKFLOW
 • Create – gather title, description, location/remote and requirements, then
   call set_internship_fields_v1 (no id).
-• Edit – identify listing → collect changes → set_internship_fields_v1 with id.
+• Edit – call list_listings_v1 → identify listing → collect changes →
+  set_internship_fields_v1 with id (or rely on the single-listing heuristic).
 • Delete – confirm intent → delete_internship_v1.
 • View applicants – list_applicants_v1 → summarise applicant list.
 
@@ -295,6 +351,7 @@ def build_employer_agent(*, user_email: str) -> Agent:
         tools=[
             _company_fields_tool_for(user_email),
             _listing_fields_tool_for(user_email),
+            _list_listings_tool_for(user_email),  # ← NEW
             _listing_applicants_tool_for(user_email),
             _listing_delete_tool_for(user_email),
             _navigate_tool(),

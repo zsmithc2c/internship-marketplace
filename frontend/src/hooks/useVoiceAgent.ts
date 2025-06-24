@@ -10,13 +10,22 @@ import { jwtDecode } from "jwt-decode";
 
 /* ─────────────────────────── types ─────────────────────────── */
 export type Msg = { role: "user" | "assistant"; content: string };
+
 type DonePayload = {
   delta: "";
   done: true;
   audio_base64?: string;
+
+  /* profile-builder (intern) */
   profile?: Record<string, unknown>;
   profile_updated_at?: string;
+
+  /* employer profile */
   employer?: Record<string, unknown>;
+
+  /* internship listings (employer) */
+  listings_updated_at?: string;   // touched when create / edit
+  listing_deleted?: number | string; // id or slug when delete
 };
 
 /* ─────────────────────── role helper ─────────────────────── */
@@ -212,106 +221,134 @@ export function useVoiceAgent() {
   const tailBuf = useRef("");
   const fullRef = useRef("");
 
-  const sendMessage = useCallback(async (userMsg: string) => {
-    const flush = (final = false) => {
-      const chunk = tailBuf.current + streamBuf.current;
-      const [done, rest] = splitSentences(chunk, final);
-      if (done) {
-        done.split(/(?<=[.!?]["')\]]?)\s+/).forEach((s) => speakSentence(s.trim()));
-        fullRef.current += done;
-      }
-      tailBuf.current = rest;
+  const sendMessage = useCallback(
+    async (userMsg: string) => {
+      /* ---------- helper to flush full sentences for TTS ---------- */
+      const flush = (final = false) => {
+        const chunk = tailBuf.current + streamBuf.current;
+        const [done, rest] = splitSentences(chunk, final);
+        if (done) {
+          done
+            .split(/(?<=[.!?]["')\]]?)\s+/)
+            .forEach((s) => speakSentence(s.trim()));
+          fullRef.current += done;
+        }
+        tailBuf.current = rest;
+        streamBuf.current = "";
+      };
+
+      /* ---------- pre-stream setup ---------- */
+      setSending(true);
+      setError(null);
       streamBuf.current = "";
-    };
+      tailBuf.current = "";
+      fullRef.current = "";
 
-    setSending(true);
-    setError(null);
-    streamBuf.current = "";
-    tailBuf.current = "";
-    fullRef.current = "";
-
-    setHistory((h) => [
-      ...h,
-      { role: "user", content: userMsg },
-      { role: "assistant", content: "" },
-    ]);
-
-    const onDelta = (tok: string) => {
-      const trim = tok.trim();
-      if (trim.startsWith("{") && trim.endsWith("}")) {
-        try {
-          const obj = JSON.parse(trim);
-          if (obj && typeof obj.navigate === "string") {
-            navigate(obj.navigate);
-            return;
-          }
-        } catch {}
-      }
-
-      const merged = mergeOverlap(tailBuf.current + streamBuf.current, tok);
-      streamBuf.current += merged.slice(
-        (tailBuf.current + streamBuf.current).length,
-      );
-
-      setHistory((h) => {
-        const copy = [...h];
-        copy[copy.length - 1] = {
-          role: "assistant",
-          content: fullRef.current + tailBuf.current + streamBuf.current,
-        };
-        return copy;
-      });
-
-      flush();
-    };
-
-    try {
-      const done = await streamAgent(userMsg, onDelta);
-      flush(true);
-      const finalText = fullRef.current + tailBuf.current;
-
-      setHistory((h) => {
-        const copy = [...h];
-        copy[copy.length - 1] = {
-          role: "assistant",
-          content: finalText || " ",
-        };
-        return copy;
-      });
-
-      qc.setQueryData(["chat", key], (old: Msg[] = []) => [
-        ...old,
+      setHistory((h) => [
+        ...h,
         { role: "user", content: userMsg },
-        { role: "assistant", content: finalText || " " },
+        { role: "assistant", content: "" },
       ]);
 
-      if (role === "EMPLOYER" && done.employer) {
-        qc.invalidateQueries({ queryKey: ["employer", "me"] });
-      }
-
-      if (role === "INTERN") {
-        if (done.profile) {
-          qc.setQueryData<Record<string, unknown> | undefined>(
-            ["profile", "me"],
-            (draft) => ({
-              ...(draft ?? {}),
-              ...done.profile!,
-            }),
-          );
-          window.dispatchEvent(new Event("profile-saved"));
-        } else if (done.profile_updated_at) {
-          await qc.refetchQueries({ queryKey: ["profile", "me"], exact: true });
-          window.dispatchEvent(new Event("profile-saved"));
+      /* ---------- consume streaming response ---------- */
+      const onDelta = (tok: string) => {
+        const trim = tok.trim();
+        if (trim.startsWith("{") && trim.endsWith("}")) {
+          try {
+            const obj = JSON.parse(trim);
+            if (obj && typeof obj.navigate === "string") {
+              navigate(obj.navigate);
+              return;
+            }
+          } catch {
+            /* fall through – not a JSON nav token */
+          }
         }
-      }
-    } catch (err) {
-      setError(err as Error);
-      setHistory((h) => h.slice(0, -1));
-    } finally {
-      setSending(false);
-    }
-  }, [qc, navigate, key, role, speakSentence]);
 
+        const merged = mergeOverlap(
+          tailBuf.current + streamBuf.current,
+          tok,
+        );
+        streamBuf.current += merged.slice(
+          (tailBuf.current + streamBuf.current).length,
+        );
+
+        setHistory((h) => {
+          const copy = [...h];
+          copy[copy.length - 1] = {
+            role: "assistant",
+            content: fullRef.current + tailBuf.current + streamBuf.current,
+          };
+          return copy;
+        });
+
+        flush();
+      };
+
+      try {
+        const done = await streamAgent(userMsg, onDelta);
+        flush(true);
+        const finalText = fullRef.current + tailBuf.current;
+
+        /* ---------- write final assistant message ---------- */
+        setHistory((h) => {
+          const copy = [...h];
+          copy[copy.length - 1] = {
+            role: "assistant",
+            content: finalText || " ",
+          };
+          return copy;
+        });
+
+        /* ---------- cache chat ---------- */
+        qc.setQueryData(["chat", key], (old: Msg[] = []) => [
+          ...old,
+          { role: "user", content: userMsg },
+          { role: "assistant", content: finalText || " " },
+        ]);
+
+        /* ---------- cache side-effects ---------- */
+        if (role === "EMPLOYER") {
+          if (done.employer) {
+            qc.invalidateQueries({ queryKey: ["employer", "me"] });
+          }
+          if (
+            "listings_updated_at" in done ||
+            "listing_deleted" in done
+          ) {
+            qc.invalidateQueries({ queryKey: ["internships", "mine"] });
+          }
+        }
+
+        if (role === "INTERN") {
+          if (done.profile) {
+            qc.setQueryData<Record<string, unknown> | undefined>(
+              ["profile", "me"],
+              (draft) => ({
+                ...(draft ?? {}),
+                ...done.profile!,
+              }),
+            );
+            window.dispatchEvent(new Event("profile-saved"));
+          } else if (done.profile_updated_at) {
+            await qc.refetchQueries({
+              queryKey: ["profile", "me"],
+              exact: true,
+            });
+            window.dispatchEvent(new Event("profile-saved"));
+          }
+        }
+      } catch (err) {
+        setError(err as Error);
+        setHistory((h) => h.slice(0, -1));
+      } finally {
+        setSending(false);
+      }
+    },
+    [qc, navigate, key, role, speakSentence],
+  );
+
+  /* ---------- auto-send transcript when STT finishes ---------- */
   const lastSent = useRef<string | null>(null);
   useEffect(() => {
     if (!transcript || sttLoading) return;
