@@ -56,7 +56,7 @@ export default function LandingPage() {
     let idx = 0;
     const cycle = () => {
       idx = (idx + 1) % TESTIMONIALS.length;
-      node.style.transform = `translateX(-${idx * 100}%)`;
+      node.style.transform = `translateX(-${(idx * 100) / TESTIMONIALS.length}%)`;
     };
     const intervalId = setInterval(cycle, 6000);
     return () => clearInterval(intervalId);
