@@ -305,7 +305,8 @@ export default function LandingPage() {
               variants={fadeUp}
               className="flex-1 px-6"
             >
-              <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-[--accent-primary] text-white shadow">
+              {/* accent variable wasn't applied in some builds, so use explicit color */}
+              <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-[#06b6d4] text-white shadow">
                 {step}
               </div>
               <h3 className="mt-4 text-lg font-semibold">{title}</h3>
