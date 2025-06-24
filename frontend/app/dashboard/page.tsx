@@ -82,6 +82,24 @@ export default function DashboardPage() {
     staleTime: 60_000,
   });
 
+  /* one-off halo animation around voice agent button */
+  const [showHalo, setShowHalo] = useState(false);
+  useEffect(() => {
+    if (
+      isIntern &&
+      typeof window !== "undefined" &&
+      !localStorage.getItem("agentHighlightDone") &&
+      !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      setShowHalo(true);
+      const t = setTimeout(() => {
+        setShowHalo(false);
+        localStorage.setItem("agentHighlightDone", "true");
+      }, 4000);
+      return () => clearTimeout(t);
+    }
+  }, [isIntern]);
+
   /* tooltip (first visit) */
   const [showTooltip, setShowTooltip] = useState(false);
   useEffect(() => {
@@ -183,8 +201,17 @@ export default function DashboardPage() {
   ];
 
   /* voice-agent controls */
-  const startAgent = () =>
-    va?.start ? va.start() : router.push(isIntern ? "/profile/builder" : "/employer/profile#agent");
+  const startAgent = () => {
+    setShowHalo(false);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("agentHighlightDone", "true");
+    }
+    if (va?.start) {
+      va.start();
+    } else {
+      router.push(isIntern ? "/profile/builder" : "/employer/profile#agent");
+    }
+  };
   const stopAgent = () => va?.stop?.();
 
   /* ─────────────────────────────── UI ─────────────────────────── */
@@ -254,6 +281,14 @@ export default function DashboardPage() {
               className="relative flex max-w-md cursor-pointer items-center gap-4 rounded-3xl bg-white/90 p-6 shadow-lg transition hover:shadow-xl active:scale-[0.97] focus:outline-none focus:ring-4 focus:ring-[--accent-primary]/50"
             >
               <span className="relative grid size-14 place-items-center rounded-full bg-primary/10 text-primary shadow-md">
+                {showHalo && (
+                  <motion.span
+                    initial={{ scale: 1, opacity: 0.8 }}
+                    animate={{ scale: [1, 1.4, 1], opacity: [0.8, 0, 0.8] }}
+                    transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                    className="pointer-events-none absolute inset-0 z-0 rounded-full bg-[--accent-primary]/50"
+                  />
+                )}
                 {va?.isRecording ? (
                   <>
                     <span className="absolute inset-0 animate-ping rounded-full bg-primary opacity-25" />
