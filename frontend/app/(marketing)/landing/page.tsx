@@ -278,6 +278,19 @@ export default function LandingPage() {
           How Pipeline Works
         </motion.h2>
 
+        <motion.p
+          className="mx-auto mt-4 max-w-3xl text-gray-600"
+          variants={fadeUp}
+          initial="hidden"
+          animate="visible"
+        >
+          Pipeline's conversational AI Agent is your personal guide. It learns
+          about intern candidates’ skills and strengths to match them with
+          employers and assist with applications. Employers can quickly post job
+          listings, discover curated matches, and connect with talent. Sign up
+          and find your match in minutes through our AI Agent.
+        </motion.p>
+
         <motion.ol
           className="mt-16 space-y-12 md:space-y-0 md:divide-x md:divide-gray-200 md:flex md:justify-between"
           initial="hidden"
