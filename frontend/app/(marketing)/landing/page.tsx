@@ -20,11 +20,11 @@ import { cn } from "@/lib/utils";
 
 /* ───────── helpers & variants ───────── */
 const fadeUp = {
-  hidden: { opacity: 0, y: 24 },
+  hidden: { opacity: 0, y: 30 },
   visible: (i = 0) => ({
     opacity: 1,
     y: 0,
-    transition: { delay: i * 0.08, duration: 0.6 },
+    transition: { delay: i * 0.12, duration: 0.8, ease: "easeOut" },
   }),
 };
 
@@ -357,7 +357,10 @@ export default function LandingPage() {
         <div className="mt-8 flex flex-wrap justify-center gap-4">
           <Link
             href="/signup"
-            className={cn(buttonVariants({ variant: "default", size: "lg" }))}
+            className={cn(
+              buttonVariants({ variant: "default", size: "lg" }),
+              "bg-white text-[--accent-primary] hover:bg-white/90 active:bg-white/80"
+            )}
           >
             Sign up free
           </Link>
