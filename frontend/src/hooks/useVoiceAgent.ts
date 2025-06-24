@@ -24,8 +24,11 @@ type DonePayload = {
   employer?: Record<string, unknown>;
 
   /* internship listings (employer) */
-  listings_updated_at?: string;   // touched when create / edit
-  listing_deleted?: number | string; // id or slug when delete
+  listings_updated_at?: string;          // saved create / edit
+  listing_deleted?: number | string;     // deletion id / slug
+
+  /* ⭐ NEW – draft listing (prefill Create-New) */
+  draft_listing?: Record<string, unknown>;
 };
 
 /* ─────────────────────── role helper ─────────────────────── */
@@ -307,16 +310,23 @@ export function useVoiceAgent() {
           { role: "assistant", content: finalText || " " },
         ]);
 
-        /* ---------- cache side-effects ---------- */
+        /* ---------- cache / UI side-effects ---------- */
         if (role === "EMPLOYER") {
           if (done.employer) {
             qc.invalidateQueries({ queryKey: ["employer", "me"] });
           }
-          if (
-            "listings_updated_at" in done ||
-            "listing_deleted" in done
-          ) {
+
+          // ⭐ Live DB changes: refetch listings
+          if ("listings_updated_at" in done || "listing_deleted" in done) {
             qc.invalidateQueries({ queryKey: ["internships", "mine"] });
+          }
+
+          // ⭐ Draft only: broadcast event & open Create-New tab
+          if (done.draft_listing) {
+            window.dispatchEvent(
+              new CustomEvent("draft-listing", { detail: done.draft_listing }),
+            );
+            navigate("/employer/internships#new");
           }
         }
 

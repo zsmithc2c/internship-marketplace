@@ -29,10 +29,7 @@ log = logging.getLogger(__name__)
 
 
 # ───────────────────────── helpers ──────────────────────────────
-
-
 def make_prompt(hist: List[AgentMessage], latest: str) -> str:
-    """Concatenate conversation history into a single prompt string."""
     return "\n".join(
         [
             *(
@@ -45,7 +42,6 @@ def make_prompt(hist: List[AgentMessage], latest: str) -> str:
 
 
 def _maybe_call(attr):
-    """Return attr() if zero-arg callable else attr."""
     if callable(attr):
         try:
             if len(inspect.signature(attr).parameters) == 0:
@@ -56,7 +52,6 @@ def _maybe_call(attr):
 
 
 def extract_tool_schema(tool) -> Dict:
-    """Extract the OpenAI function schema from a FunctionTool."""
     for name in (
         "openai_schema",
         "schema",
@@ -86,7 +81,6 @@ def extract_tool_schema(tool) -> Dict:
 
 
 async def _invoke_tool(tool, raw_args: Dict | str) -> str:
-    """Invoke a tool's on_invoke_tool callback with proper argument handling."""
     fn = tool.on_invoke_tool
     sig = inspect.signature(fn)
     pos_params = [
@@ -106,13 +100,10 @@ async def _invoke_tool(tool, raw_args: Dict | str) -> str:
             else json.dumps(raw_args, separators=(",", ":"))
         )
         return await fn(None, payload_str) if wants_ctx else await fn(payload_str)
-    # No-arg tool
     return await fn()
 
 
 # ───────────────────────── Agent chat view ─────────────────────────
-
-
 class EmployerAgentView(APIView):
     """
     POST /api/agent/employer-assistant/
@@ -122,8 +113,9 @@ class EmployerAgentView(APIView):
       ...
       { "delta": "", "done": true,
         "employer": {..},                 # if company profile changed
-        "listings_updated_at": "...",     # timestamp when listings changed
-        "listing_deleted": 123,            # id of deleted listing (if any)
+        "listings_updated_at": "...",     # when listings were saved/edited
+        "listing_deleted": 123,           # id of listing that disappeared
+        "draft_listing": { … },           # JSON draft for Create-New form
         "audio_base64": "..." }           # if TTS succeeded
     """
 
@@ -150,12 +142,10 @@ class EmployerAgentView(APIView):
                 status=429,
             )
 
-        # Save user message → history
         AgentMessage.objects.create(
             user=user, role="user", content=latest, agent_type="employer"
         )
 
-        # Build prompt
         history = list(
             AgentMessage.objects.filter(user=user, agent_type="employer").order_by(
                 "created_at"
@@ -163,7 +153,6 @@ class EmployerAgentView(APIView):
         )
         prompt = make_prompt(history, latest)
 
-        # Initialise agent
         agent_meta = build_employer_agent(user_email=user.email)
         system_msg = {"role": "system", "content": agent_meta.instructions}
         user_msg = {"role": "user", "content": prompt}
@@ -172,17 +161,18 @@ class EmployerAgentView(APIView):
 
         q: queue.Queue[str | dict] = queue.Queue()
 
-        # ─────────── background worker (async) ───────────
+        # ─────────── background worker ───────────
         def worker() -> None:
             async def _run() -> None:
-                company_updated: bool = False
-                listings_updated: bool = False
+                company_updated = False
+                listings_updated = False
                 deleted_listing_id: Optional[int] = None
+                draft_listing: Optional[Dict] = None
 
                 try:
                     msgs: List[Dict] = [system_msg, user_msg]
 
-                    # 1️⃣  Initial streaming pass (with tools)
+                    # 1️⃣  streaming pass with tools
                     stream1 = await client.chat.completions.create(
                         model="gpt-4o-mini",
                         messages=msgs,
@@ -209,7 +199,7 @@ class EmployerAgentView(APIView):
                             collected.append(delta.content)
                             q.put(delta.content)
 
-                    # 2️⃣  Handle function calls (if any)
+                    # 2️⃣  handle tool calls
                     if tool_call_frags:
                         collected.clear()
                         tool_calls = [
@@ -218,7 +208,6 @@ class EmployerAgentView(APIView):
                             if frag["name"]
                         ]
 
-                        # Assistant message containing the tool calls
                         msgs.append(
                             {
                                 "role": "assistant",
@@ -237,7 +226,6 @@ class EmployerAgentView(APIView):
                             }
                         )
 
-                        # Execute each call
                         for t in tool_calls:
                             fn_name = t["name"]
                             arg_json = t["arguments"] or "{}"
@@ -248,16 +236,22 @@ class EmployerAgentView(APIView):
 
                             result = await _invoke_tool(tool_lookup[fn_name], kwargs)
 
-                            # Track side-effects for payload
                             if fn_name == "set_company_fields_v1":
                                 company_updated = True
+
                             elif fn_name == "set_internship_fields_v1":
                                 listings_updated = True
+
                             elif fn_name == "delete_internship_v1":
                                 listings_updated = True
-                                # capture the listing id (if provided) so the UI knows what disappeared
                                 if isinstance(kwargs, dict):
                                     deleted_listing_id = kwargs.get("listing_id")
+
+                            elif fn_name == "draft_internship_v1":
+                                try:
+                                    draft_listing = json.loads(result)
+                                except Exception:
+                                    draft_listing = None
 
                             elif (
                                 fn_name == "navigate_to_v1"
@@ -275,7 +269,7 @@ class EmployerAgentView(APIView):
                                 }
                             )
 
-                        # 3️⃣  Second streaming pass (model sees tool results)
+                        # 3️⃣  second pass after tool execution
                         stream2 = await client.chat.completions.create(
                             model="gpt-4o",
                             messages=msgs,
@@ -287,7 +281,7 @@ class EmployerAgentView(APIView):
                                 collected.append(tok)
                                 q.put(tok)
 
-                    # 4️⃣  Finalise
+                    # 4️⃣  final
                     q.put(
                         {
                             "__done__": True,
@@ -295,6 +289,7 @@ class EmployerAgentView(APIView):
                             "company_updated": company_updated,
                             "listings_updated": listings_updated,
                             "deleted_listing_id": deleted_listing_id,
+                            "draft_listing": draft_listing,
                         }
                     )
                 except Exception as exc:
@@ -307,7 +302,7 @@ class EmployerAgentView(APIView):
 
         threading.Thread(target=worker, daemon=True).start()
 
-        # ─────────── foreground: streaming HTTP response ───────────
+        # ─────────── foreground stream ───────────
         def event_stream() -> Generator[bytes, None, None]:
             while True:
                 item = q.get()
@@ -320,7 +315,6 @@ class EmployerAgentView(APIView):
                     yield json.dumps({"error": item["__error__"]}).encode() + b"\n"
                     break
 
-                # Assemble final payload
                 reply: str = item.get("reply", "")
                 audio_b64: Optional[str] = None
                 try:
@@ -334,12 +328,8 @@ class EmployerAgentView(APIView):
                 except Exception:  # pragma: no cover
                     pass
 
-                # Save assistant reply
                 AgentMessage.objects.create(
-                    user=user,
-                    role="assistant",
-                    content=reply,
-                    agent_type="employer",
+                    user=user, role="assistant", content=reply, agent_type="employer"
                 )
 
                 payload: Dict[str, object] = {"delta": "", "done": True}
@@ -354,6 +344,9 @@ class EmployerAgentView(APIView):
                     if item.get("deleted_listing_id") is not None:
                         payload["listing_deleted"] = item["deleted_listing_id"]
 
+                if item.get("draft_listing"):
+                    payload["draft_listing"] = item["draft_listing"]
+
                 if audio_b64:
                     payload["audio_base64"] = audio_b64
 
@@ -364,8 +357,6 @@ class EmployerAgentView(APIView):
 
 
 # ───────────────────────── chat history view ─────────────────────
-
-
 class AgentHistoryView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 

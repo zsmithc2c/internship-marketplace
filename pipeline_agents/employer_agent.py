@@ -5,7 +5,7 @@ Employer-side AI assistant.
 
 Capabilities
 • Build / edit the company profile
-• Create, update, delete internship listings
+• Create, draft, update, delete internship listings
 • List applicants for a listing
 • Fetch current listings (id + title)
 • Instruct the front-end to navigate pages
@@ -24,6 +24,7 @@ from django.db import transaction
 import employers.tools as _e
 from employers.models import Employer
 from internships.models import Internship
+from internships.tools import InternshipDraft  # ← NEW
 from pipeline_agents.openai_client import client as async_client
 
 User = get_user_model()
@@ -32,9 +33,8 @@ User = get_user_model()
 # ─────────────────────────────── schema helper ──────────────────────────────
 def _equip_openai_schema(tool):
     """
-    Make sure every FunctionTool exposes `.openai_schema` and strip any
-    “required” array from the parameters block so the model can send
-    partial payloads.
+    Ensure every FunctionTool exposes `.openai_schema` and strip any “required”
+    array so the model can send partial payloads.
     """
     if not hasattr(tool, "openai_schema") and hasattr(tool, "schema"):
         tool.openai_schema = tool.schema  # type: ignore[attr-defined]
@@ -129,11 +129,17 @@ def _delete_listing_sync(user_email: str, listing_id: int) -> str:
     return json.dumps(snap, default=str)
 
 
-def _list_listings_sync(user_email: str) -> str:  # ← fixed variable name
+# ──────────────────────────────────────────────────────────────────────────
+def _list_listings_sync(user_email: str) -> str:
     user = User.objects.get(email=user_email)
     employer, _ = Employer.objects.get_or_create(user=user)
+
     listings = [
-        {"id": listing.id, "title": listing.title, "status": listing.status}
+        {
+            "id": listing.id,
+            "title": listing.title,
+            "status": listing.status,
+        }  # ← clearer variable
         for listing in Internship.objects.filter(employer=employer).order_by(
             "created_at"
         )
@@ -176,6 +182,34 @@ def _company_fields_tool_for(user_email: str):
     return _equip_openai_schema(set_company_fields_v1)
 
 
+# ────────────── FunctionTool: **draft new listing** ──────────────
+def _draft_listing_tool_for(user_email: str):  # <-- NEW
+    """
+    Accepts a JSON string describing a *new* internship. Does **not** hit
+    the database – just validates & echoes back so the front-end can
+    pre-fill the Create-New form.
+    """
+
+    @function_tool
+    async def draft_internship_v1(*, payload_json: str | None = None) -> str:
+        if not payload_json or payload_json.strip() in ("{}", "null", ""):
+            return "no_draft"
+
+        draft = InternshipDraft.model_validate_json(payload_json).model_dump(
+            exclude_none=True
+        )
+
+        from django.conf import settings
+
+        result = "draft_received"
+        if settings.DEBUG:
+            result += f" | draft={json.dumps(draft, default=str)}"
+        # We *return* the validated JSON so the view layer can forward it
+        return json.dumps(draft, separators=(",", ":"))
+
+    return _equip_openai_schema(draft_internship_v1)
+
+
 # ────────────── FunctionTool: listing create / update ──────────────
 def _listing_fields_tool_for(user_email: str):
     @function_tool
@@ -204,7 +238,7 @@ def _listing_fields_tool_for(user_email: str):
 
 
 # ────────────── FunctionTool: list CURRENT listings ──────────────
-def _list_listings_tool_for(user_email: str):  # ← NEW
+def _list_listings_tool_for(user_email: str):
     @function_tool
     async def list_listings_v1() -> str:
         data = await sync_to_async(_list_listings_sync, thread_sensitive=True)(
@@ -269,75 +303,77 @@ _SYSTEM_INSTRUCTIONS = r"""
 You are the **Pipeline Employer Assistant** – an upbeat, knowledgeable guide
 for companies using the internship marketplace.
 
-Below are your function-tools. **Always call a tool when the user asks to
-perform the corresponding action.**
+Below are your function-tools. **Always call the appropriate tool whenever the
+user asks to *do* something (save data, navigate, etc.).**
 
 ╔═╤══════════════════════════╤════════════════════════════╤════════════════════════════════════╗
 ║#│ name                     │ what it does               │ arguments schema                  ║
 ╟─┼──────────────────────────┼────────────────────────────┼────────────────────────────────────╢
 ║1│ set_company_fields_v1    │ create / update profile    │ { "payload_json": "<JSON-string>" }║
-║2│ set_internship_fields_v1 │ create / update listing    │ { "payload_json": "<JSON-string>" }║
-║3│ list_listings_v1         │ get existing listings      │ {}                                 ║
-║4│ list_applicants_v1       │ list applicants            │ { "listing_id": 123 }              ║
-║5│ delete_internship_v1     │ delete a listing           │ { "listing_id": 123 }              ║
-║6│ navigate_to_v1           │ change UI page             │ { "path": "/employer/…" }          ║
+║2│ draft_internship_v1      │ prepare *new* listing      │ { "payload_json": "<JSON-string>" }║
+║3│ set_internship_fields_v1 │ update existing listing    │ { "payload_json": "<JSON-string>" }║
+║4│ list_listings_v1         │ fetch current listings     │ {}                                 ║
+║5│ list_applicants_v1       │ list applicants            │ { "listing_id": 123 }              ║
+║6│ delete_internship_v1     │ delete a listing           │ { "listing_id": 123 }              ║
+║7│ navigate_to_v1           │ change UI page             │ { "path": "/employer/…" }          ║
 ╚═╧══════════════════════════╧════════════════════════════╧════════════════════════════════════╝
 
-• After gathering data, you may optionally navigate to "/employer/internships#new"
-  so the UI opens the creation form automatically.
-
 IMPORTANT RULES
-1. Use a tool whenever the user wants to **do** something (save data, delete,
-   view applicants, navigate). Otherwise give a normal answer.
-2. For tools #1 and #2 send data as a *double-encoded JSON string* in
-   `payload_json`.
+1. **Always** use a tool for actions (saving, deleting, navigating). Otherwise,
+   reply normally.
+2. For any tool that takes JSON (`*_fields_v1`, `draft_internship_v1`) send the
+   data as a *double-encoded* JSON string inside `payload_json`.
 
    Example – set company name & mission  
-     {  
-       "name": "set_company_fields_v1",  
-       "arguments": {  
-         "payload_json": "{\"company_name\":\"Rocket Co\",\"mission\":\"Make space cheap\"}"  
-       }  
+     {
+       "name": "set_company_fields_v1",
+       "arguments": {
+         "payload_json": "{\"company_name\":\"Rocket Co\",\"mission\":\"Make space cheap\"}"
+       }
      }
 
-3. **Before editing a listing** call `list_listings_v1` to fetch current IDs,
-   then include the correct `id` when using `set_internship_fields_v1`.
-   • If exactly one listing exists and the user doesn’t specify an id,
-     treat the update as applying to that single listing.
+3. **Creating a brand-new listing**
+   • Gather title, description, location/remote & requirements.  
+   • Call **`draft_internship_v1`** with those fields.  
+   • Immediately call **`navigate_to_v1`** with `"/employer/internships#new"` so
+     the UI opens the *Create New* tab and pre-fills the form.
 
-4. Wait for explicit confirmation before deleting data or posting a new listing
-   unless the request is crystal-clear.
-5. After calling a tool, summarise the result in plain language.
-6. Keep replies concise, friendly, action-oriented.
-7. If the company profile is incomplete, encourage the user to finish it so
-   they can post internships and find matches quickly.
+4. **Editing an existing listing**
+   • Call **`list_listings_v1`** first to fetch IDs.  
+   • Include the correct `id` when you call **`set_internship_fields_v1`**.  
+   • If the employer has *exactly one* listing and no `id` is given, treat the
+     change as an update to that single listing.
+
+5. Always confirm destructive actions (delete, publish live) unless the intent
+   is crystal-clear.
+
+6. After each tool call, summarise the outcome briefly in plain English.
+
+7. Keep replies concise, friendly, action-oriented. Encourage profile
+   completion if key fields are missing.
 
 ONBOARDING FLOW
-• Greet and introduce yourself.
-• Explain that the first step is completing the Company Profile.
-  If any of company_name, mission, location or website are missing,
-  prompt the user for them.
-• Offer to open /employer/profile; on approval call navigate_to_v1 with
-  {"path":"/employer/profile"}.
-• Gather each profile field and save via set_company_fields_v1 with brief
-  confirmations.
-• Once the profile looks complete, congratulate them and pivot to making the
-  first internship listing. Offer to open /employer/internships#new and call
-  navigate_to_v1 if accepted.
+• Greet the user.  
+• Explain that the first step is completing the **Company Profile**.  
+• If any of *company_name, mission, location, website* are missing, prompt for
+  them.  
+• Offer to open */employer/profile*; upon approval call  
+  `navigate_to_v1({"path":"/employer/profile"})`.  
+• Save each field via **`set_company_fields_v1`** with short confirmations.  
+• When the profile is complete, celebrate and pivot to creating the first
+  internship. Offer to open */employer/internships#new* and navigate if accepted.
 
 INTERNSHIP LISTING WORKFLOW
-• Create – gather title, description, location/remote and requirements, then
-  call set_internship_fields_v1 (no id).
-• Edit – call list_listings_v1 → identify listing → collect changes →
-  set_internship_fields_v1 with id (or rely on the single-listing heuristic).
-• Delete – confirm intent → delete_internship_v1.
-• View applicants – list_applicants_v1 → summarise applicant list.
+• **Create** – gather details → `draft_internship_v1` → navigate to form.  
+• **Edit**  – `list_listings_v1` → collect changes → `set_internship_fields_v1`.  
+• **Delete** – confirm → `delete_internship_v1`.  
+• **View applicants** – `list_applicants_v1` → summarise.
 
 PAGE NAVIGATION
-Use navigate_to_v1 whenever the user asks to open a different page, e.g.
-  /employer/internships   /employer/help   etc.
+Call **`navigate_to_v1`** whenever the user wants to switch pages,
+e.g. */employer/internships*, */employer/help*, etc.
 
-Ready to assist!
+Ready to assist! 🚀
 """
 
 
@@ -350,8 +386,9 @@ def build_employer_agent(*, user_email: str) -> Agent:
         model="gpt-4o",
         tools=[
             _company_fields_tool_for(user_email),
+            _draft_listing_tool_for(user_email),  # ← NEW
             _listing_fields_tool_for(user_email),
-            _list_listings_tool_for(user_email),  # ← NEW
+            _list_listings_tool_for(user_email),
             _listing_applicants_tool_for(user_email),
             _listing_delete_tool_for(user_email),
             _navigate_tool(),
