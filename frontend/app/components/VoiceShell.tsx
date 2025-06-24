@@ -4,6 +4,7 @@
 import { usePathname } from "next/navigation";
 import NavBar from "./NavBar";
 import FloatingVoiceAgent from "./FloatingVoiceAgent";
+import SkipLink from "./SkipLink";
 import { VoiceAgentProvider } from "@/context/VoiceAgentContext";
 
 /**
@@ -24,13 +25,20 @@ export default function VoiceShell({ children }: { children: React.ReactNode }) 
     pathname.startsWith("/login") ||
     pathname.startsWith("/signup");
 
-  if (isPublic) return <>{children}</>;
+  if (isPublic)
+    return (
+      <>
+        <SkipLink />
+        <main id="main-content" tabIndex={-1}>{children}</main>
+      </>
+    );
 
   /* Authenticated app pages */
   return (
     <VoiceAgentProvider>
+      <SkipLink />
       <NavBar />
-      {children}
+      <main id="main-content" tabIndex={-1}>{children}</main>
       <FloatingVoiceAgent />
     </VoiceAgentProvider>
   );

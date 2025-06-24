@@ -147,4 +147,10 @@ body{
 @media (prefers-reduced-motion: reduce){
   .animate-blob{ animation: none !important; }
 }
+
+/*  FOCUS OUTLINES --------------------------------------------------------- */
+:is(a, button, input, textarea, select, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
 /* -------------------------------------------------------------------------- */
