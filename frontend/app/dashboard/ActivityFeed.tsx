@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Clock } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import type { Internship } from "@/hooks/useInternships";
+import type { Internship } from "@/hooks/useInternship";
 
 /**
  * Recent-activity ticker shown on the intern dashboard.

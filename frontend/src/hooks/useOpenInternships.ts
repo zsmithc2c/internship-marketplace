@@ -1,7 +1,7 @@
 "use client";
 import { useQuery, type UseQueryOptions } from "@tanstack/react-query";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
-import type { Internship } from "@/hooks/useInternships";
+import type { Internship } from "@/hooks/useInternship";
 
 /** Fetch all open internships (status=open). */
 async function getOpenInternships(): Promise<Internship[]> {
