@@ -1,4 +1,4 @@
-import { getAccess, refreshTokens } from "@/lib/auth";
+import { getAccess, refreshTokens, saveTokens } from "@/lib/auth";
 
 /**
  * Thin wrapper around fetch that
@@ -9,13 +9,13 @@ export async function fetchWithAuth(
   input: RequestInfo | URL,
   init: RequestInit = {},
 ): Promise<Response> {
-  /* normalise caller-supplied headers */
+  /* clone / normalise caller-supplied headers */
   const headers =
     init.headers instanceof Headers
-      ? new Headers(init.headers) // clone so we can mutate safely
+      ? new Headers(init.headers) // safe mutable copy
       : new Headers(init.headers ?? {});
 
-  /** ensure the Bearer token is present (don’t overwrite if caller set one) */
+  /** attach Bearer token unless caller already set one */
   const addAuth = (token: string | null | undefined) => {
     if (token && !headers.has("Authorization")) {
       headers.set("Authorization", `Bearer ${token}`);
@@ -27,12 +27,15 @@ export async function fetchWithAuth(
   /* first attempt */
   let res = await fetch(input, { ...init, headers });
 
-  /* one retry after a token refresh */
+  /* one retry after token refresh */
   if (res.status === 401 && getAccess()) {
     try {
-      const fresh = await refreshTokens();
-      addAuth(fresh);
-      res = await fetch(input, { ...init, headers });
+      const fresh = await refreshTokens();   // may throw
+      if (fresh) {
+        saveTokens(fresh);                   // make it primary for other tabs
+        addAuth(fresh);
+        res = await fetch(input, { ...init, headers });
+      }
     } catch {
       /* refresh failed – fall through with original 401 response */
     }

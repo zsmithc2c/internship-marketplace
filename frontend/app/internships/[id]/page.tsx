@@ -87,7 +87,6 @@ export default function InternshipDetailPage() {
     setSubmitted(false);
     try {
       const form = new FormData();
-      form.append("email", email);
       if (cover) form.append("cover_letter", cover);
       if (refs) form.append("references", refs);
       if (resumeRef.current?.files?.[0]) {

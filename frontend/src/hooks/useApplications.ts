@@ -25,7 +25,7 @@ export type Application = {
 export type FullApplication = {
   id: number;
   intern_email: string;
-  internship_id: number;
+  internship_id: number;          // owner internship (for back-link)
   status: "pending" | "accepted" | "rejected";
   created_at: string;
   cover_letter: string | null;
@@ -34,7 +34,7 @@ export type FullApplication = {
 };
 
 /* ------------------------------------------------------------------ */
-/*  API calls                                                          */
+/*  API helpers                                                        */
 /* ------------------------------------------------------------------ */
 
 /* Employer – list all applications for one internship */
@@ -80,17 +80,16 @@ async function postApplication(opts: {
 }): Promise<Application> {
   const { listingId, data } = opts;
 
+  /* decide between multipart and json */
   let body: BodyInit;
   let headers: HeadersInit | undefined;
 
   if (data.resume_file) {
-    /* multipart: browser will add the boundary automatically */
     const fd = new FormData();
     fd.append("resume", data.resume_file);
     if (data.cover_letter) fd.append("cover_letter", data.cover_letter);
     if (data.references) fd.append("references", data.references);
-    body = fd;
-    // leave `headers` undefined so fetchWithAuth keeps its own object
+    body = fd;              // browser will add boundary
   } else {
     body = JSON.stringify({
       cover_letter: data.cover_letter,
@@ -99,13 +98,9 @@ async function postApplication(opts: {
     headers = { "Content-Type": "application/json" };
   }
 
-  /* only include headers if we actually set any */
-  const fetchOpts: RequestInit = { method: "POST", body };
-  if (headers) fetchOpts.headers = headers;
-
   const res = await fetchWithAuth(
     `/api/internships/${listingId}/applications/`,
-    fetchOpts,
+    { method: "POST", body, headers },
   );
   if (!res.ok) throw new Error(await res.text());
   return res.json();
@@ -152,7 +147,7 @@ export function useApplyToInternship(listingId: number) {
   return useMutation({
     mutationFn: (data: ApplyPayload) => postApplication({ listingId, data }),
     onSuccess: () => {
-      /* refresh both the open-list feed and the detail page */
+      /* refresh both the open-list feed *and* the detail page */
       qc.invalidateQueries({ queryKey: ["internships", "open"] });
       qc.invalidateQueries({ queryKey: ["internship", listingId] });
     },
