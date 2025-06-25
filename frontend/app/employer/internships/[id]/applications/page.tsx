@@ -9,6 +9,8 @@ import {
   useUpdateApplication,
 } from "@/hooks/useApplications";
 
+const accentBtn = "bg-emerald-600 hover:bg-emerald-700 text-white";
+
 export default function ApplicationsPage() {
   /* ----------- routing ----------- */
   const params = useParams();
@@ -88,7 +90,7 @@ export default function ApplicationsPage() {
                     <td className="py-2 space-x-2">
                       <Button
                         size="sm"
-                        variant="secondary"
+                        variant="ghost"
                         onClick={() => setSelectedId(app.id)}
                       >
                         View
@@ -97,6 +99,7 @@ export default function ApplicationsPage() {
                         <>
                           <Button
                             size="sm"
+                            className={accentBtn}
                             onClick={() =>
                               updateApp({ id: app.id, status: "accepted" })
                             }
@@ -189,6 +192,7 @@ export default function ApplicationsPage() {
                 <>
                   <Button
                     size="sm"
+                    className={accentBtn}
                     onClick={() => {
                       updateApp({ id: selected.id, status: "accepted" });
                       closeDetail();
