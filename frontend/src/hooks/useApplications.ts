@@ -1,3 +1,4 @@
+// src/hooks/useApplications.ts
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -24,11 +25,11 @@ export type Application = {
 export type FullApplication = {
   id: number;
   intern_email: string;
-  internship_id: number;               // NEW  ←──────────────
+  internship_id: number;
   status: "pending" | "accepted" | "rejected";
   created_at: string;
   cover_letter: string | null;
-  references: string | null;           // normalised to string
+  references: string | null;
   resume_url: string | null;
 };
 
@@ -36,7 +37,7 @@ export type FullApplication = {
 /*  API calls                                                          */
 /* ------------------------------------------------------------------ */
 
-/* GET employer-view list of applications (per internship) */
+/* Employer – list all applications for one internship */
 async function getApplications(listingId: number): Promise<Application[]> {
   const res = await fetchWithAuth(
     `/api/internships/${listingId}/applications/`,
@@ -45,55 +46,51 @@ async function getApplications(listingId: number): Promise<Application[]> {
   return res.json();
 }
 
-/* GET one full application (employer detail view) */
+/* Employer – fetch one application in full detail */
 async function getApplication(id: number): Promise<FullApplication> {
   const res = await fetchWithAuth(`/api/applications/${id}/`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
-/* PATCH employer accept / reject */
-async function patchApplication({
-  id,
-  status,
-}: {
+/* Employer – accept / reject */
+async function patchApplication(params: {
   id: number;
   status: "accepted" | "rejected";
 }): Promise<Application> {
-  const res = await fetchWithAuth(`/api/applications/${id}/`, {
+  const res = await fetchWithAuth(`/api/applications/${params.id}/`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status }),
+    body: JSON.stringify({ status: params.status }),
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
-/* ── Intern POST: apply ──────────────────────────────────────────── */
+/* Intern – create a new application */
 type ApplyPayload = {
   cover_letter?: string;
   references?: string;
   resume_file?: File;
 };
 
-async function postApplication({
-  listingId,
-  data,
-}: {
+async function postApplication(opts: {
   listingId: number;
   data: ApplyPayload;
 }): Promise<Application> {
-  /* If a résumé file is present, use FormData; otherwise JSON */
+  const { listingId, data } = opts;
+
   let body: BodyInit;
   let headers: HeadersInit | undefined;
 
   if (data.resume_file) {
+    /* multipart: browser will add the boundary automatically */
     const fd = new FormData();
     fd.append("resume", data.resume_file);
     if (data.cover_letter) fd.append("cover_letter", data.cover_letter);
     if (data.references) fd.append("references", data.references);
     body = fd;
-    headers = undefined; // browser sets multipart boundary
+    // leave `headers` undefined so fetchWithAuth keeps its own object
   } else {
     body = JSON.stringify({
       cover_letter: data.cover_letter,
@@ -102,13 +99,13 @@ async function postApplication({
     headers = { "Content-Type": "application/json" };
   }
 
+  /* only include headers if we actually set any */
+  const fetchOpts: RequestInit = { method: "POST", body };
+  if (headers) fetchOpts.headers = headers;
+
   const res = await fetchWithAuth(
     `/api/internships/${listingId}/applications/`,
-    {
-      method: "POST",
-      headers,
-      body,
-    },
+    fetchOpts,
   );
   if (!res.ok) throw new Error(await res.text());
   return res.json();
@@ -118,7 +115,7 @@ async function postApplication({
 /*  React-Query hooks                                                  */
 /* ------------------------------------------------------------------ */
 
-/** Employer: list all applicants for a given internship */
+/** Employer: list applicants for a listing */
 export function useApplications(listingId: number) {
   return useQuery({
     queryKey: ["applications", listingId],
@@ -127,7 +124,7 @@ export function useApplications(listingId: number) {
   });
 }
 
-/** Employer: fetch one application in full detail */
+/** Employer: view one application */
 export function useApplication(id: number, enabled = true) {
   return useQuery({
     queryKey: ["application", id],
@@ -137,7 +134,7 @@ export function useApplication(id: number, enabled = true) {
   });
 }
 
-/** Employer: update application status */
+/** Employer: update status */
 export function useUpdateApplication(listingId: number) {
   const qc = useQueryClient();
   return useMutation({
@@ -155,7 +152,9 @@ export function useApplyToInternship(listingId: number) {
   return useMutation({
     mutationFn: (data: ApplyPayload) => postApplication({ listingId, data }),
     onSuccess: () => {
+      /* refresh both the open-list feed and the detail page */
       qc.invalidateQueries({ queryKey: ["internships", "open"] });
+      qc.invalidateQueries({ queryKey: ["internship", listingId] });
     },
   });
 }

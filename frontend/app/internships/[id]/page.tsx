@@ -1,3 +1,4 @@
+// frontend/app/internships/[id]/page.tsx
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -10,6 +11,7 @@ import {
   Send,
   ExternalLink,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useInternship } from "@/hooks/useInternship";
@@ -58,6 +60,9 @@ export default function InternshipDetailPage() {
   const [submitError, setSubmitError] = useState<Error | null>(null);
   const [submitted, setSubmitted] = useState(false);
 
+  /* React-Query for cache invalidation */
+  const qc = useQueryClient();
+
   /* -------- prefill from agent draft -------- */
   useEffect(() => {
     const onDraft = (e: Event) => {
@@ -94,6 +99,8 @@ export default function InternshipDetailPage() {
       );
       if (!res.ok) throw new Error(await res.text());
       setSubmitted(true);
+      /* refresh has_applied + counters */
+      qc.invalidateQueries({ queryKey: ["internship", job.id] });
     } catch (err) {
       setSubmitError(err as Error);
     } finally {
@@ -117,7 +124,7 @@ export default function InternshipDetailPage() {
     );
   }
 
-  /* -------- UI -------- */
+  /* -------- UI helpers -------- */
   const {
     title,
     description,
@@ -130,6 +137,8 @@ export default function InternshipDetailPage() {
     requires_references,
     external_application_url,
   } = job;
+
+  const alreadyApplied = job.has_applied || submitted;
 
   return (
     <main className="min-h-screen bg-gray-50/60 pt-14">
@@ -192,9 +201,9 @@ export default function InternshipDetailPage() {
               Apply on Company Site
               <ExternalLink className="h-4 w-4" />
             </a>
-          ) : submitted ? (
+          ) : alreadyApplied ? (
             <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-              Application submitted! We’ll notify you when the employer responds.
+              You’ve already applied to this internship.
             </p>
           ) : (
             <form onSubmit={send} className="space-y-4">
@@ -257,7 +266,7 @@ export default function InternshipDetailPage() {
               <Button
                 type="submit"
                 size="lg"
-                disabled={submitting}
+                disabled={submitting || alreadyApplied}
                 className="gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60"
               >
                 {submitting ? "Submitting…" : "Submit Application"}

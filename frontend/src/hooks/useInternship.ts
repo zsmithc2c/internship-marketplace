@@ -15,7 +15,7 @@ export type Internship = {
   is_remote: boolean;
   requirements: string | null;
 
-  /* ── NEW optional application-settings & status ─────────────────── */
+  /* ── application settings & listing status ─────────────────────── */
   requires_cover_letter?: boolean;
   requires_resume?: boolean;
   requires_references?: boolean;
@@ -30,9 +30,9 @@ export type Internship = {
   employer_name: string;
   employer_logo_url: string | null;
 
-  /* derived flags / counters */
+  /* derived counters & flags  ─────────────────────────────────────── */
   applications_count?: number;
-  has_applied?: boolean;
+  has_applied: boolean;            // ← now required (serializer always sends it)
 };
 
 /* ------------------------------------------------------------------ */
@@ -58,7 +58,9 @@ async function getInternship(id: number): Promise<Internship> {
 /* ------------------------------------------------------------------ */
 
 /** Retrieve internships feed (intern-side). */
-export function useInternships(options: Partial<UseQueryOptions<Internship[]>> = {}) {
+export function useInternships(
+  options: Partial<UseQueryOptions<Internship[]>> = {},
+) {
   return useQuery<Internship[]>({
     queryKey: ["internships", "all"],
     queryFn: getAllInternships,

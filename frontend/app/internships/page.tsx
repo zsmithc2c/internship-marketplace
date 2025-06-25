@@ -1,8 +1,9 @@
+/* app/internships/page.tsx */
 "use client";
 
 import Image from "next/image";
 import Link from "next/link";
-import { Building, MapPin } from "lucide-react";
+import { Building, MapPin, BadgeCheck } from "lucide-react";
 import { useOpenInternships } from "@/hooks/useOpenInternships";
 
 /* small pill component */
@@ -59,7 +60,10 @@ export default function InternshipsPage() {
               <Link
                 key={it.id}
                 href={`/internships/${it.id}`}
-                className="block rounded-xl border bg-white p-6 shadow-sm transition-shadow hover:shadow-md focus:outline-none focus:ring-4 focus:ring-emerald-300/40"
+                aria-disabled={it.has_applied}
+                className={`block rounded-xl border bg-white p-6 shadow-sm transition-shadow focus:outline-none focus:ring-4 focus:ring-emerald-300/40
+                  hover:shadow-md
+                  ${it.has_applied ? "opacity-60 cursor-default" : ""}`}
               >
                 <h2 className="text-xl font-semibold">{it.title}</h2>
 
@@ -100,12 +104,20 @@ export default function InternshipsPage() {
                     : it.description}
                 </p>
 
-                {/* requirement flags */}
+                {/* requirement flags + applied indicator */}
                 <div className="mt-3 flex flex-wrap gap-2">
+                  {it.has_applied && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+                      <BadgeCheck className="h-3 w-3" />
+                      Applied
+                    </span>
+                  )}
                   {it.requires_cover_letter && <Pill label="Cover Letter" />}
                   {it.requires_resume && <Pill label="Resume" />}
                   {it.requires_references && <Pill label="References" />}
-                  {it.external_application_url && <Pill label="External Link" />}
+                  {it.external_application_url && (
+                    <Pill label="External Link" />
+                  )}
                 </div>
               </Link>
             ))}
