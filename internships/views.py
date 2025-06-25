@@ -166,8 +166,9 @@ class ApplicationList(generics.ListCreateAPIView):
             raise ValidationError("You have already applied to this internship.")
 
 
-class ApplicationDetail(generics.UpdateAPIView):
+class ApplicationDetail(generics.RetrieveUpdateAPIView):
     """
+    GET   /api/applications/<id>/   -> employer fetches full application
     PATCH /api/applications/<id>/   -> employer accepts/rejects application
     """
 
