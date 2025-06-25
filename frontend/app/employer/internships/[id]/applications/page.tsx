@@ -9,7 +9,8 @@ import {
   useUpdateApplication,
 } from "@/hooks/useApplications";
 
-const accentBtn = "bg-emerald-600 hover:bg-emerald-700 text-white";
+// green accent style for Accept buttons
+const accentBtn = "bg-emerald-500 hover:bg-emerald-600 text-white";
 
 export default function ApplicationsPage() {
   /* ----------- routing ----------- */
