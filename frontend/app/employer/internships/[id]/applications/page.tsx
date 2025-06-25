@@ -10,6 +10,9 @@ import {
   useUpdateApplication,
 } from "@/hooks/useApplications";
 
+// green accent style for Accept buttons
+const accentBtn = "bg-emerald-500 hover:bg-emerald-600 text-white";
+
 export default function ApplicationsPage() {
   /* ----------- routing ----------- */
   const params = useParams();
@@ -66,7 +69,10 @@ export default function ApplicationsPage() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={3} className="py-6 text-center text-muted-foreground">
+                  <td
+                    colSpan={3}
+                    className="py-6 text-center text-muted-foreground"
+                  >
                     Loading applications…
                   </td>
                 </tr>
@@ -82,7 +88,7 @@ export default function ApplicationsPage() {
                     <td className="py-2 break-all">{app.intern_email}</td>
                     <td className="py-2 capitalize">{app.status}</td>
                     <td className="py-2 space-x-2">
-                      {/* ---------- new Detail link ---------- */}
+                      {/* ---------- Detail page link ---------- */}
                       <Link
                         href={`/employer/applications/${app.id}`}
                         className="inline-flex"
@@ -97,6 +103,7 @@ export default function ApplicationsPage() {
                         <>
                           <Button
                             size="sm"
+                            className={accentBtn}
                             onClick={() =>
                               updateApp({ id: app.id, status: "accepted" })
                             }
@@ -115,14 +122,19 @@ export default function ApplicationsPage() {
                           </Button>
                         </>
                       ) : (
-                        <em className="text-xs text-muted-foreground">No actions</em>
+                        <em className="text-xs text-muted-foreground">
+                          No actions
+                        </em>
                       )}
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={3} className="py-6 text-center text-muted-foreground">
+                  <td
+                    colSpan={3}
+                    className="py-6 text-center text-muted-foreground"
+                  >
                     No applications yet.
                   </td>
                 </tr>

@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-// @ts-expect-error — ensure the hook exists at this path
 import { useInternship } from "@/hooks/useInternship";
 import { fetchWithAuth } from "@/lib/fetchWithAuth";
 import { useAuth } from "@/hooks/useAuth";
