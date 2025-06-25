@@ -16,7 +16,7 @@ export const buttonVariants = cva(
         default:
           "bg-[--accent-primary] text-white hover:bg-[--accent] active:bg-[--accent-primary]/90",
         secondary:
-          "bg-white/10 text-white hover:bg-white/20 active:bg-white/30",
+          "bg-secondary text-secondary-foreground hover:bg-secondary/90 active:bg-secondary/80",
         ghost: "bg-transparent hover:bg-black/5 active:bg-black/10",
       },
       size: { sm: "h-8 px-3", md: "h-10 px-4", lg: "h-12 px-6 text-base" },
