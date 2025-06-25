@@ -32,9 +32,10 @@ class EmployerSerializer(serializers.ModelSerializer):
 
 
 class ApplicationSerializer(serializers.ModelSerializer):
-    """Application details for employer review."""
+    """Full application details visible to the employer."""
 
     intern_email = serializers.ReadOnlyField(source="intern.email")
+    internship_id = serializers.ReadOnlyField(source="internship.id")  # NEW
     resume_url = serializers.SerializerMethodField()
 
     class Meta:
@@ -42,27 +43,29 @@ class ApplicationSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "intern_email",
+            "internship_id",  # ← include in response
             "status",
             "created_at",
             "cover_letter",
-            "references",
             "resume_url",
+            "references",
         )
         read_only_fields = (
             "id",
             "intern_email",
+            "internship_id",
             "created_at",
             "cover_letter",
-            "references",
             "resume_url",
+            "references",
         )
 
     # ────────────────────────────────────────────────
-    # Helper
+    # Helpers
     # ────────────────────────────────────────────────
 
     def get_resume_url(self, obj):
-        """Return absolute URL for the uploaded resume file (if any)."""
+        """Return absolute URL for the uploaded résumé (if any)."""
         if not obj.resume:
             return None
         request = self.context.get("request")

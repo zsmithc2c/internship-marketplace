@@ -6,31 +6,53 @@ import { fetchWithAuth } from "@/lib/fetchWithAuth";
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
+
+/** Minimal row shown in the “Applicants” list */
 export type Application = {
   id: number;
   intern_email: string;
   status: "pending" | "accepted" | "rejected";
   created_at: string;
 
-  /* ── NEW optional submitted materials ──────────────────────────── */
+  /* optional submitted materials (list view may omit) */
   cover_letter?: string | null;
   references?: string | null;
   resume_url?: string | null;
-  /* ──────────────────────────────────────────────────────────────── */
+};
+
+/** Full application record (detail view) */
+export type FullApplication = {
+  id: number;
+  intern_email: string;
+  internship_id: number;               // NEW  ←──────────────
+  status: "pending" | "accepted" | "rejected";
+  created_at: string;
+  cover_letter: string | null;
+  references: string | null;           // normalised to string
+  resume_url: string | null;
 };
 
 /* ------------------------------------------------------------------ */
 /*  API calls                                                          */
 /* ------------------------------------------------------------------ */
 
-/* GET employer-view list of applications */
+/* GET employer-view list of applications (per internship) */
 async function getApplications(listingId: number): Promise<Application[]> {
-  const res = await fetchWithAuth(`/api/internships/${listingId}/applications/`);
+  const res = await fetchWithAuth(
+    `/api/internships/${listingId}/applications/`,
+  );
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
-/* PATCH employer accept/reject */
+/* GET one full application (employer detail view) */
+async function getApplication(id: number): Promise<FullApplication> {
+  const res = await fetchWithAuth(`/api/applications/${id}/`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+/* PATCH employer accept / reject */
 async function patchApplication({
   id,
   status,
@@ -47,12 +69,13 @@ async function patchApplication({
   return res.json();
 }
 
-/* ── NEW: POST intern apply ─────────────────────────────────────── */
+/* ── Intern POST: apply ──────────────────────────────────────────── */
 type ApplyPayload = {
   cover_letter?: string;
   references?: string;
   resume_file?: File;
 };
+
 async function postApplication({
   listingId,
   data,
@@ -60,7 +83,7 @@ async function postApplication({
   listingId: number;
   data: ApplyPayload;
 }): Promise<Application> {
-  /* If a resume file is present, use FormData; otherwise JSON */
+  /* If a résumé file is present, use FormData; otherwise JSON */
   let body: BodyInit;
   let headers: HeadersInit | undefined;
 
@@ -70,7 +93,7 @@ async function postApplication({
     if (data.cover_letter) fd.append("cover_letter", data.cover_letter);
     if (data.references) fd.append("references", data.references);
     body = fd;
-    headers = undefined; // browser sets multipart headers
+    headers = undefined; // browser sets multipart boundary
   } else {
     body = JSON.stringify({
       cover_letter: data.cover_letter,
@@ -85,7 +108,7 @@ async function postApplication({
       method: "POST",
       headers,
       body,
-    }
+    },
   );
   if (!res.ok) throw new Error(await res.text());
   return res.json();
@@ -95,21 +118,33 @@ async function postApplication({
 /*  React-Query hooks                                                  */
 /* ------------------------------------------------------------------ */
 
-/** Employer: list applicants for a listing */
+/** Employer: list all applicants for a given internship */
 export function useApplications(listingId: number) {
   return useQuery({
     queryKey: ["applications", listingId],
     queryFn: () => getApplications(listingId),
+    enabled: Number.isFinite(listingId),
   });
 }
 
-/** Employer: update status (accept / reject) */
+/** Employer: fetch one application in full detail */
+export function useApplication(id: number, enabled = true) {
+  return useQuery({
+    queryKey: ["application", id],
+    queryFn: () => getApplication(id),
+    enabled: enabled && Number.isFinite(id),
+    staleTime: 60_000,
+  });
+}
+
+/** Employer: update application status */
 export function useUpdateApplication(listingId: number) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: patchApplication,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["applications", listingId] });
+      qc.invalidateQueries({ queryKey: ["application"] });
     },
   });
 }
@@ -120,7 +155,6 @@ export function useApplyToInternship(listingId: number) {
   return useMutation({
     mutationFn: (data: ApplyPayload) => postApplication({ listingId, data }),
     onSuccess: () => {
-      /* On success, refetch listing so has_applied flag / count update */
       qc.invalidateQueries({ queryKey: ["internships", "open"] });
     },
   });

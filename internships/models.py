@@ -48,11 +48,11 @@ class Application(models.Model):
         related_name="applications",
     )
 
-    # ──────────────── NEW SUBMITTED MATERIALS ────────────────
+    # ──────────────── SUBMITTED MATERIALS ────────────────
     cover_letter = models.TextField(blank=True)
     resume = models.FileField(upload_to="resumes/", blank=True, null=True)
-    references = models.TextField(blank=True)
-    # ──────────────────────────────────────────────────────────
+    references = models.JSONField(blank=True, null=True)  # list[str] – optional
+    # ──────────────────────────────────────────────────────
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
